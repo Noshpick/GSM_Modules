@@ -70,6 +70,7 @@ def make_app():
 
 if __name__ == "__main__":
     app = make_app()
-    app.listen(7777)
-    print("Сервер запущен: http://127.0.0.1:7777")
+    app.listen(7777, address="0.0.0.0")
+    print("Сервер запущен: http://0.0.0.0:7777")
     tornado.ioloop.IOLoop.current().start()
+
