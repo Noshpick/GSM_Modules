@@ -135,7 +135,7 @@ class ModemManager:
         response = self.send_at_command(port, 'AT+CUSD=1,"*100#",15')
 
         if not response or "ERROR" in response:
-            return "Баланс недоступен"
+            return None
 
         time.sleep(3)
         new_response = self.send_at_command(port, "")
@@ -144,12 +144,19 @@ class ModemManager:
             try:
                 match = re.search(r'"\s*([^"]+)\s*"', new_response)
                 if match:
-                    balance_text = match.group(1)
-                    return bytes.fromhex(balance_text).decode("utf-16-be").strip() if re.fullmatch(r"[0-9A-F]+", balance_text, re.IGNORECASE) else balance_text.strip()
-            except Exception as e:
-                return f"Ошибка декодирования: {str(e)}"
+                    balance_text = match.group(1).strip()
 
-        return "Баланс недоступен"
+                    if re.fullmatch(r"[0-9A-F]+", balance_text, re.IGNORECASE):
+                        balance_text = bytes.fromhex(balance_text).decode("utf-16-be").strip()
+
+                    balance_match = re.search(r"\d+[.,]?\d*", balance_text)
+                    if balance_match:
+                        return float(balance_match.group(0).replace(",", "."))
+
+            except Exception as e:
+                return None
+
+        return None
 
     def get_sms(self, port, include_111=False):
         self.send_at_command(port, "AT+CNMI=2,1,0,0,0")

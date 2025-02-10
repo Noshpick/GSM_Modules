@@ -53,14 +53,12 @@ class AuditHandler(BaseHandler):
 
         for port in self.get_available_ports():
             balance = modem_manager.get_balance(port)
-            balance_match = re.search(r"\d+[.,]?\d*\s?", balance)
-            balance = balance_match.group(0) if balance_match else "Недоступно"
 
             modem_data = {
                 "port": port,
                 "operator": modem_manager.get_operator(port),
                 "phone": modem_manager.get_phone_number(port),
-                "balance": balance,
+                "balance": balance if balance is not None else "Недоступно",
                 "messages": modem_manager.get_sms(port)["sms"]
             }
             all_audit_data.append(modem_data)
