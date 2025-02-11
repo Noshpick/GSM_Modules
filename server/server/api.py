@@ -1,5 +1,6 @@
 import tornado.ioloop
 import tornado.web
+import re
 from modem.modem_manager import ModemManager
 
 modem_manager = ModemManager()
@@ -7,6 +8,7 @@ modem_manager.connect()
 
 
 class BaseHandler(tornado.web.RequestHandler):
+    
     def get_available_ports(self):
         return list(modem_manager.modems.keys())
 
@@ -35,7 +37,6 @@ class BaseHandler(tornado.web.RequestHandler):
         return port
 
 
-
 class SMSHandler(BaseHandler):
     def get(self):
         all_sms_data = {}
@@ -46,21 +47,26 @@ class SMSHandler(BaseHandler):
 
         self.write({"status": "SUCCESS", "data": all_sms_data})
 
-
-
 class AuditHandler(BaseHandler):
     def get(self):
-        all_audit_data = {}
+        all_audit_data = []
 
         for port in self.get_available_ports():
-            all_audit_data[port] = {
+            balance = modem_manager.get_balance(port)
+            balance_match = re.search(r"\d+[.,]?\d*\s?", balance)
+            balance = balance_match.group(0) if balance_match else "Недоступно"
+
+            modem_data = {
+                "port": port,
                 "operator": modem_manager.get_operator(port),
                 "phone": modem_manager.get_phone_number(port),
-                "balance": modem_manager.get_balance(port),
+                "balance": balance,
                 "messages": modem_manager.get_sms(port)["sms"]
             }
+            all_audit_data.append(modem_data)
 
         self.write({"status": "SUCCESS", "data": all_audit_data})
+
 
 def make_app():
     return tornado.web.Application([
@@ -68,9 +74,9 @@ def make_app():
         (r"/audit", AuditHandler),
     ])
 
+
 if __name__ == "__main__":
     app = make_app()
     app.listen(7777, address="0.0.0.0")
     print("Сервер запущен: http://0.0.0.0:7777")
     tornado.ioloop.IOLoop.current().start()
-

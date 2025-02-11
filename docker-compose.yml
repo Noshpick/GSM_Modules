@@ -1,0 +1,25 @@
+version: "3.8"
+services:
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    ports:
+      - "7777:7777"
+    privileged: true
+    devices:
+      - "/dev:/dev"
+    environment:
+      - COM_PORTS=ALL
+    restart: always
+
+
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    depends_on:
+      - server
+    restart: always
