@@ -9,6 +9,16 @@ export default function App() {
     useEffect(() => {
         fetchAuditData();
         fetchSmsData();
+<<<<<<< Updated upstream
+=======
+        setupWebSocket();
+
+        const smsInterval = setInterval(fetchSmsData, 10000);
+
+        return () => {
+            clearInterval(smsInterval);
+        };
+>>>>>>> Stashed changes
     }, []);
 
     const fetchAuditData = async () => {
@@ -30,6 +40,24 @@ export default function App() {
         }
     };
 
+<<<<<<< Updated upstream
+=======
+    const setupWebSocket = () => {
+        const ws = new WebSocket("ws://localhost:7777/ws/logs");
+
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            if (data.status === "LOG") {
+                setLogs((prevLogs) => [...prevLogs.slice(-49), data.message]);
+            }
+        };
+
+        ws.onopen = () => console.log("WebSocket подключён");
+        ws.onerror = (error) => console.error("Ошибка WebSocket:", error);
+        ws.onclose = () => console.log("WebSocket отключён");
+    };
+
+>>>>>>> Stashed changes
     return (
         <div className="container mx-auto p-4">
             <h1 className="text-2xl font-bold mb-4">GSM Dashboard</h1>

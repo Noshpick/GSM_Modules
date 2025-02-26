@@ -1,6 +1,11 @@
 import tornado.ioloop
 import tornado.web
 import re
+<<<<<<< Updated upstream
+=======
+import os
+from tornado import websocket
+>>>>>>> Stashed changes
 from modem.modem_manager import ModemManager
 
 modem_manager = ModemManager()
@@ -45,6 +50,32 @@ class BaseHandler(tornado.web.RequestHandler):
 
         return port
 
+<<<<<<< Updated upstream
+=======
+class LogsWebSocketHandler(websocket.WebSocketHandler):
+    def open(self):
+        log_clients.add(self)
+        self.write_message(json.dumps({"status": "CONNECTED", "message": "WebSocket открыт"}))
+        self.send_latest_logs()
+
+    def on_close(self):
+        log_clients.discard(self)
+
+    def send_latest_logs(self):
+        log_file_path = "logs/app.log"
+        if os.path.exists(log_file_path):
+            with open(log_file_path, "r") as log_file:
+                logs = log_file.readlines()[-50:]
+                self.write_message(json.dumps({"status": "SUCCESS", "logs": logs}))
+
+    @staticmethod
+    def broadcast_log(log_message):
+        for client in log_clients:
+            try:
+                client.write_message(json.dumps({"status": "LOG", "message": log_message}))
+            except:
+                log_clients.discard(client)
+>>>>>>> Stashed changes
 
 class SMSHandler(BaseHandler):
     def get(self):
@@ -74,11 +105,93 @@ class AuditHandler(BaseHandler):
 
         self.write({"status": "SUCCESS", "data": all_audit_data})
 
+<<<<<<< Updated upstream
+=======
+class CodeHandler(BaseHandler):
+    def get(self):
+        phone_number = self.get_argument("phone", None)
+
+        if not phone_number:
+            self.write({
+                "status": "ERROR",
+                "message": "Отсутствует параметр 'phone'. Укажите номер отправителя."
+            })
+            self.set_status(400)
+            self.finish()
+            return
+
+        extracted_codes = {}
+
+        available_ports = self.get_available_ports()
+
+        if not available_ports:
+            self.write({"status": "ERROR", "message": "Нет доступных модемов."})
+            self.set_status(500)
+            self.finish()
+            return
+
+        for port in available_ports:
+            modem_manager.send_at_command(port, 'AT+CMGL="ALL"')
+            sms_data = modem_manager.get_sms(port)
+            codes = []
+
+            for sms in sms_data["sms"]:
+                sender = sms["sender"].lstrip("+")
+
+                if sender == phone_number:
+                    numeric_code = " ".join(re.findall(r'\d+', sms["message"]))
+
+                    codes.append({
+                        "id": sms["id"],
+                        "sender": sms["sender"],
+                        "message": numeric_code,
+                        "timestamp": sms["timestamp"]
+                    })
+
+            extracted_codes[port] = codes
+
+        if all(len(codes) == 0 for codes in extracted_codes.values()):
+            self.write({"status": "ERROR", "message": f"Сообщения от номера {phone_number} не найдены."})
+            self.set_status(404)
+        else:
+            self.write({"status": "SUCCESS", "data": extracted_codes})
+
+        self.finish()
+
+
+def tail_logs():
+    log_file_path = "logs/app.log"
+    if not os.path.exists(log_file_path):
+        return
+
+    with open(log_file_path, "r") as f:
+        f.seek(0, os.SEEK_END)
+        while True:
+            line = f.readline()
+            if line:
+                LogsWebSocketHandler.broadcast_log(line.strip())
+            else:
+                tornado.ioloop.IOLoop.current().call_later(1, tail_logs)
+                break
+
+
+def periodic_refresh():
+    modem_manager.refresh_modems()
+    tornado.ioloop.IOLoop.current().call_later(10, periodic_refresh)
+
+periodic_refresh()
+tail_logs()
+>>>>>>> Stashed changes
 
 def make_app():
     return tornado.web.Application([
         (r"/sms", SMSHandler),
         (r"/audit", AuditHandler),
+<<<<<<< Updated upstream
+=======
+        (r"/code", CodeHandler),
+        (r"/ws/logs", LogsWebSocketHandler),
+>>>>>>> Stashed changes
     ])
 
 
