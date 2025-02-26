@@ -10,14 +10,12 @@ export default function App() {
     useEffect(() => {
         fetchAuditData();
         fetchSmsData();
-        fetchLogs();
+        setupWebSocket();
 
         const smsInterval = setInterval(fetchSmsData, 10000);
-        const logInterval = setInterval(fetchLogs, 5000);
 
         return () => {
             clearInterval(smsInterval);
-            clearInterval(logInterval);
         };
     }, []);
 
@@ -40,13 +38,19 @@ export default function App() {
         }
     };
 
-    const fetchLogs = async () => {
-        try {
-            const response = await axios.get("http://localhost:7777/logs");
-            setLogs(response.data.logs || []);
-        } catch (error) {
-            console.error("Ошибка при получении логов:", error);
-        }
+    const setupWebSocket = () => {
+        const ws = new WebSocket("ws://localhost:7777/ws/logs");
+
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            if (data.status === "LOG") {
+                setLogs((prevLogs) => [...prevLogs.slice(-49), data.message]);
+            }
+        };
+
+        ws.onopen = () => console.log("WebSocket подключён");
+        ws.onerror = (error) => console.error("Ошибка WebSocket:", error);
+        ws.onclose = () => console.log("WebSocket отключён");
     };
 
     return (

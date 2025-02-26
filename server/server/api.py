@@ -2,6 +2,7 @@ import tornado.ioloop
 import tornado.web
 import re
 import os
+from tornado import websocket
 from modem.modem_manager import ModemManager
 
 modem_manager = ModemManager()
@@ -47,25 +48,29 @@ class BaseHandler(tornado.web.RequestHandler):
 
         return port
 
-class LogsHandler(BaseHandler):
-    def get(self):
+class LogsWebSocketHandler(websocket.WebSocketHandler):
+    def open(self):
+        log_clients.add(self)
+        self.write_message(json.dumps({"status": "CONNECTED", "message": "WebSocket открыт"}))
+        self.send_latest_logs()
+
+    def on_close(self):
+        log_clients.discard(self)
+
+    def send_latest_logs(self):
         log_file_path = "logs/app.log"
-
-        if not os.path.exists(log_file_path):
-            self.write({"status": "ERROR", "message": "Файл логов отсутствует."})
-            self.set_status(404)
-            self.finish()
-            return
-
-        try:
+        if os.path.exists(log_file_path):
             with open(log_file_path, "r") as log_file:
                 logs = log_file.readlines()[-50:]
-                self.write({"status": "SUCCESS", "logs": logs})
-        except Exception as e:
-            self.write({"status": "ERROR", "message": f"Ошибка чтения логов: {str(e)}"})
-            self.set_status(500)
+                self.write_message(json.dumps({"status": "SUCCESS", "logs": logs}))
 
-        self.finish()
+    @staticmethod
+    def broadcast_log(log_message):
+        for client in log_clients:
+            try:
+                client.write_message(json.dumps({"status": "LOG", "message": log_message}))
+            except:
+                log_clients.discard(client)
 
 class SMSHandler(BaseHandler):
     def get(self):
@@ -142,18 +147,35 @@ class CodeHandler(BaseHandler):
         self.finish()
 
 
+def tail_logs():
+    log_file_path = "logs/app.log"
+    if not os.path.exists(log_file_path):
+        return
+
+    with open(log_file_path, "r") as f:
+        f.seek(0, os.SEEK_END)
+        while True:
+            line = f.readline()
+            if line:
+                LogsWebSocketHandler.broadcast_log(line.strip())
+            else:
+                tornado.ioloop.IOLoop.current().call_later(1, tail_logs)
+                break
+
+
 def periodic_refresh():
     modem_manager.refresh_modems()
     tornado.ioloop.IOLoop.current().call_later(10, periodic_refresh)
 
 periodic_refresh()
+tail_logs()
 
 def make_app():
     return tornado.web.Application([
         (r"/sms", SMSHandler),
         (r"/audit", AuditHandler),
         (r"/code", CodeHandler),
-        (r"/logs", LogsHandler),
+        (r"/ws/logs", LogsWebSocketHandler),
     ])
 
 
