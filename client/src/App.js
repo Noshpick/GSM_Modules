@@ -21,7 +21,7 @@ export default function App() {
 
     const fetchAuditData = async () => {
         try {
-            const response = await axios.get("http://localhost:7777/audit");
+            const response = await axios.get("http://45.152.170.77:7777/audit");
             setAuditData(response.data.data);
         } catch (error) {
             console.error("Ошибка при получении данных аудита:", error);
@@ -30,7 +30,7 @@ export default function App() {
 
     const fetchSmsData = async () => {
         try {
-            const response = await axios.get("http://localhost:7777/sms");
+            const response = await axios.get("http://45.152.170.77:7777/sms");
             setSmsData(response.data.data);
             setLoading(false);
         } catch (error) {
@@ -39,7 +39,7 @@ export default function App() {
     };
 
     const setupWebSocket = () => {
-        const ws = new WebSocket("ws://localhost:7777/ws/logs");
+        const ws = new WebSocket("ws://45.152.170.77:7777/ws/logs");
 
         ws.onmessage = (event) => {
             const data = JSON.parse(event.data);
