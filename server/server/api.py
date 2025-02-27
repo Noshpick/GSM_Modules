@@ -6,6 +6,7 @@ import os
 import json
 from tornado.ioloop import PeriodicCallback
 from modem.modem_manager import ModemManager
+import asyncio
 
 modem_manager = ModemManager()
 modem_manager.connect()
@@ -58,6 +59,7 @@ class LogsWebSocketHandler(tornado.websocket.WebSocketHandler):
     def open(self):
         log_clients.add(self)
         self.write_message(json.dumps({"status": "CONNECTED", "message": "WebSocket открыт"}))
+        asyncio.get_event_loop().call_later(1, self.send_latest_logs)
         self.send_latest_logs()
 
     def on_close(self):
