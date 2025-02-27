@@ -1,13 +1,16 @@
 import tornado.ioloop
 import tornado.web
+import tornado.websocket
 import re
 import os
-from tornado import websocket
+import json
+from tornado.ioloop import PeriodicCallback
 from modem.modem_manager import ModemManager
 
 modem_manager = ModemManager()
 modem_manager.connect()
 
+log_clients = set()
 
 class BaseHandler(tornado.web.RequestHandler):
     
@@ -48,7 +51,11 @@ class BaseHandler(tornado.web.RequestHandler):
 
         return port
 
-class LogsWebSocketHandler(websocket.WebSocketHandler):
+class LogsWebSocketHandler(tornado.websocket.WebSocketHandler):
+    
+    def check_origin(self, origin):
+        return True
+
     def open(self):
         log_clients.add(self)
         self.write_message(json.dumps({"status": "CONNECTED", "message": "WebSocket открыт"}))
@@ -66,7 +73,7 @@ class LogsWebSocketHandler(websocket.WebSocketHandler):
 
     @staticmethod
     def broadcast_log(log_message):
-        for client in log_clients:
+        for client in list(log_clients):
             try:
                 client.write_message(json.dumps({"status": "LOG", "message": log_message}))
             except:
@@ -167,8 +174,11 @@ def periodic_refresh():
     modem_manager.refresh_modems()
     tornado.ioloop.IOLoop.current().call_later(10, periodic_refresh)
 
+def start_log_watcher():
+    PeriodicCallback(tail_logs, 1000).start()
+
 periodic_refresh()
-tail_logs()
+start_log_watcher()
 
 def make_app():
     return tornado.web.Application([
