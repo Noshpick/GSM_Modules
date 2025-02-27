@@ -52,10 +52,9 @@ class BaseHandler(tornado.web.RequestHandler):
         return port
 
 class LogsWebSocketHandler(tornado.websocket.WebSocketHandler):
-    
+
     def check_origin(self, origin):
         return True
-
     def open(self):
         log_clients.add(self)
         self.write_message(json.dumps({"status": "CONNECTED", "message": "WebSocket открыт"}))
@@ -158,16 +157,25 @@ def tail_logs():
     log_file_path = "logs/app.log"
     if not os.path.exists(log_file_path):
         return
-
-    with open(log_file_path, "r") as f:
-        f.seek(0, os.SEEK_END)
-        while True:
-            line = f.readline()
-            if line:
-                LogsWebSocketHandler.broadcast_log(line.strip())
-            else:
-                tornado.ioloop.IOLoop.current().call_later(1, tail_logs)
-                break
+    
+    last_pos = 0
+    
+    def check_new_logs():
+        nonlocal last_pos
+        if not os.path.exists(log_file_path):
+            return
+        
+        with open(log_file_path, "r") as f:
+            f.seek(last_pos)
+            new_logs = f.readlines()
+            last_pos = f.tell()
+        
+        for line in new_logs:
+            LogsWebSocketHandler.broadcast_log(line.strip())
+        
+        tornado.ioloop.IOLoop.current().call_later(1, check_new_logs)
+    
+    check_new_logs()
 
 
 def periodic_refresh():
@@ -175,7 +183,7 @@ def periodic_refresh():
     tornado.ioloop.IOLoop.current().call_later(10, periodic_refresh)
 
 def start_log_watcher():
-    PeriodicCallback(tail_logs, 1000).start()
+    PeriodicCallback(tail_logs, 4000).start()
 
 periodic_refresh()
 start_log_watcher()
