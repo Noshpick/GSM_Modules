@@ -10,6 +10,7 @@ export default function App() {
     const [selectedSms, setSelectedSms] = useState([]);
 
     useEffect(() => {
+        console.log("🔄 useEffect запущен");
         fetchAuditData();
         fetchSmsData();
         setupWebSocket();
@@ -21,36 +22,37 @@ export default function App() {
     const fetchAuditData = async () => {
         try {
             const response = await axios.get("http://45.152.170.77:7777/audit");
-            console.log("Ответ API (модемы):", response.data);
-            setAuditData(response.data.data);
+            console.log("✅ Ответ API (модемы):", response.data);
+            setAuditData([...response.data.data]); // Обновляем массив правильно
         } catch (error) {
-            console.error("Ошибка при получении данных аудита:", error);
+            console.error("❌ Ошибка API (модемы):", error);
         }
     };
 
     const fetchSmsData = async () => {
         try {
             const response = await axios.get("http://45.152.170.77:7777/sms");
-            console.log("Ответ API (SMS):", response.data);
-            setSmsData(response.data.data);
+            console.log("✅ Ответ API (SMS):", response.data);
+            setSmsData({ ...response.data.data }); // Обновляем объект правильно
         } catch (error) {
-            console.error("Ошибка при получении SMS:", error);
+            console.error("❌ Ошибка API (SMS):", error);
         }
     };
 
     const setupWebSocket = () => {
         const ws = new WebSocket("ws://45.152.170.77:7777/ws/logs");
 
+        ws.onopen = () => console.log("✅ WebSocket подключён!");
+        ws.onerror = (error) => console.error("❌ WebSocket ошибка:", error);
+        ws.onclose = () => console.log("⚠️ WebSocket отключён");
+
         ws.onmessage = (event) => {
+            console.log("📩 WebSocket сообщение:", event.data);
             const data = JSON.parse(event.data);
             if (data.status === "LOG") {
                 setLogs((prevLogs) => [...prevLogs.slice(-49), data.message]);
             }
         };
-
-        ws.onopen = () => console.log("WebSocket подключён");
-        ws.onerror = (error) => console.error("Ошибка WebSocket:", error);
-        ws.onclose = () => console.log("WebSocket отключён");
     };
 
     const toggleLogs = () => {
@@ -60,8 +62,14 @@ export default function App() {
 
     const openSmsPanel = (modem) => {
         setSelectedModem(modem);
-        setSelectedSms(smsData[modem.port] || []);
-        document.querySelector(".sms-container")?.classList.add("open");
+        console.log("🟢 Выбран модем:", modem);
+        console.log("💬 smsData (при выборе модема):", smsData);
+        console.log(`🔍 Модем ${modem.port} → SMS:`, smsData[modem.port]);
+
+        setTimeout(() => {
+            setSelectedSms(smsData?.[modem.port] || []);
+            document.querySelector(".sms-container")?.classList.add("open");
+        }, 500);
     };
 
     const closeSmsPanel = () => {
