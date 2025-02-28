@@ -55,8 +55,8 @@ class BaseHandler(tornado.web.RequestHandler):
 class LogsWebSocketHandler(tornado.websocket.WebSocketHandler):
 
     def check_origin(self, origin):
-    return super().check_origin(origin)
-    
+        return super().check_origin(origin)
+
     def open(self):
         log_clients.add(self)
         self.write_message(json.dumps({"status": "CONNECTED", "message": "WebSocket открыт"}))
