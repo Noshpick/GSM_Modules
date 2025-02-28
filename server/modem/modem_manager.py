@@ -7,7 +7,7 @@ import logging
 import platform
 import re
 import time
-from server.server.db import save_sms, extract_numbers
+
 import tornado
 
 CONFIG_PATH = "config/config.json"
@@ -249,17 +249,15 @@ class ModemManager:
                 logging.error(f"Модем {port} не подключён!")
                 return {"sms": [], "error": f"Модем {port} не подключён"}
 
-            modem_number = self.get_phone_number(port)  # Получаем номер SIM
-
             self.send_at_command(port, "AT+CMGF=1")
-            response = self.send_at_command(port, 'AT+CMGL="ALL"')
 
+            response = self.send_at_command(port, 'AT+CMGL="ALL"')
             if not response or "ERROR" in response:
                 return {"sms": []}
 
             messages = response.split("+CMGL: ")[1:]
-            sms_list = []
 
+            sms_list = []
             for sms in messages:
                 parts = sms.strip().split("\r\n")
                 if len(parts) < 2:
@@ -269,25 +267,17 @@ class ModemManager:
                 if len(header) < 6:
                     continue
 
-                sender = header[2].replace('"', "").strip()
                 date = header[4].strip().replace('"', '')
                 time_str = header[5].strip().replace('"', '')
 
-                raw_message = "\n".join(parts[1:]).strip()
-                numeric_message = extract_numbers(raw_message)
-
-                # Сохраняем в БД только, если есть цифры
-                if numeric_message:
-                    save_sms(port, modem_number, sender, numeric_message, f"{date} {time_str}")
-
                 sms_data = {
-                    "sender": sender,
-                    "message": raw_message,  # Оригинальный текст SMS (JSON)
-                    "numeric_message": numeric_message,  # Только цифры (SQLite)
+                    "id": header[0].strip(),
+                    "sender": header[2].replace('"', "").strip(),
+                    "message": self.pdu_decode("\n".join(parts[1:]).strip()),
                     "timestamp": f"{date} {time_str}"
                 }
 
-                if not include_111 and sender == "111":
+                if not include_111 and sms_data["sender"] == "111":
                     continue
 
                 sms_list.append(sms_data)
