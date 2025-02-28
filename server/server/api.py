@@ -118,7 +118,7 @@ class CodeHandler(BaseHandler):
             self.finish()
             return
 
-        available_ports = self.get_available_ports()
+        available_ports = list(modem_manager.modems.keys())
         if not available_ports:
             self.write({"status": "ERROR", "message": "Нет доступных модемов."})
             self.set_status(500)
@@ -127,18 +127,30 @@ class CodeHandler(BaseHandler):
 
         latest_code = None
 
+        modem_numbers = {}
         for port in available_ports:
-            if modem_manager.get_phone_number(port) == modem_phone:
-                modem_manager.send_at_command(port, 'AT+CMGL="ALL"')
-                sms_data = modem_manager.get_sms(port)
-                
-                for sms in sorted(sms_data["sms"], key=lambda x: x["timestamp"], reverse=True):
-                    if sms["sender"].lstrip("+") == sender_phone:
-                        latest_code = " ".join(re.findall(r'\d+', sms["message"]))
-                        break
-                
-                if latest_code:
-                    break
+            if port not in modem_numbers:
+                modem_numbers[port] = modem_manager.get_phone_number(port)
+
+        target_port = None
+        for port, phone in modem_numbers.items():
+            if phone == modem_phone:
+                target_port = port
+                break
+
+        if not target_port:
+            self.write({"status": "ERROR", "message": f"SIM {modem_phone} не найдена в модемах."})
+            self.set_status(404)
+            self.finish()
+            return
+
+        modem_manager.send_at_command(target_port, 'AT+CMGL="REC UNREAD"')
+        sms_data = modem_manager.get_sms(target_port)
+
+        for sms in sorted(sms_data["sms"], key=lambda x: x["timestamp"], reverse=True):
+            if sms["sender"].lstrip("+") == sender_phone:
+                latest_code = " ".join(re.findall(r'\d+', sms["message"]))
+                break
 
         if latest_code:
             self.write({"status": "SUCCESS", "code": latest_code})
@@ -150,6 +162,7 @@ class CodeHandler(BaseHandler):
             self.set_status(404)
 
         self.finish()
+
 
 
 def tail_logs():
