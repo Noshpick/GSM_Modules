@@ -7,6 +7,7 @@ import json
 from tornado.ioloop import PeriodicCallback
 from modem.modem_manager import ModemManager
 import asyncio
+import time
 
 modem_manager = ModemManager()
 modem_manager.connect()
@@ -105,6 +106,9 @@ class AuditHandler(BaseHandler):
         self.write({"status": "SUCCESS", "data": all_audit_data})
 
 class CodeHandler(BaseHandler):
+    modem_numbers_cache = {}
+    last_cache_update = 0
+
     def get(self):
         modem_phone = self.get_argument("modem_phone", None)
         sender_phone = self.get_argument("sender_phone", None)
@@ -125,15 +129,12 @@ class CodeHandler(BaseHandler):
             self.finish()
             return
 
-        latest_code = None
-
-        modem_numbers = {}
-        for port in available_ports:
-            if port not in modem_numbers:
-                modem_numbers[port] = modem_manager.get_phone_number(port)
+        if time.time() - self.last_cache_update > 10:
+            self.modem_numbers_cache = {port: modem_manager.get_phone_number(port) for port in available_ports}
+            self.last_cache_update = time.time()
 
         target_port = None
-        for port, phone in modem_numbers.items():
+        for port, phone in self.modem_numbers_cache.items():
             if phone == modem_phone:
                 target_port = port
                 break
@@ -144,8 +145,15 @@ class CodeHandler(BaseHandler):
             self.finish()
             return
 
-        modem_manager.send_at_command(target_port, 'AT+CMGL="REC UNREAD"')
+        response = modem_manager.send_at_command(target_port, 'AT+CMGL="REC UNREAD",1', delay=0.5)
+        if not response or "ERROR" in response:
+            self.write({"status": "ERROR", "message": "Не удалось получить SMS."})
+            self.set_status(500)
+            self.finish()
+            return
+
         sms_data = modem_manager.get_sms(target_port)
+        latest_code = None
 
         for sms in sorted(sms_data["sms"], key=lambda x: x["timestamp"], reverse=True):
             if sms["sender"].lstrip("+") == sender_phone:
