@@ -1,16 +1,17 @@
 import tornado.ioloop
 import tornado.web
 import tornado.websocket
-import re
 import os
 import json
 from tornado.ioloop import PeriodicCallback
 from modem.modem_manager import ModemManager
 import asyncio
-import time
+from server.server.db import get_latest_sms, init_db
+
 
 modem_manager = ModemManager()
 modem_manager.connect()
+init_db()
 
 log_clients = set()
 
@@ -106,65 +107,27 @@ class AuditHandler(BaseHandler):
         self.write({"status": "SUCCESS", "data": all_audit_data})
 
 
-class CodeHandler(BaseHandler):
-    modem_numbers_cache = {}
-    last_cache_update = 0
+class SMSHandler(BaseHandler):
+    def get(self):
+        self.write({"status": "SUCCESS", "data": modem_manager.sms_cache})
 
+class CodeHandler(BaseHandler):
     def get(self):
         modem_phone = self.get_argument("modem_phone", None)
         sender_phone = self.get_argument("sender_phone", None)
 
         if not modem_phone or not sender_phone:
-            self.write({
-                "status": "ERROR",
-                "message": "Отсутствуют параметры 'modem_phone' и/или 'sender_phone'. Укажите номера."
-            })
+            self.write({"status": "ERROR", "message": "Нужно указать modem_phone и sender_phone."})
             self.set_status(400)
             self.finish()
             return
 
-        available_ports = list(modem_manager.modems.keys())
-        if not available_ports:
-            self.write({"status": "ERROR", "message": "Нет доступных модемов."})
-            self.set_status(500)
-            self.finish()
-            return
-
-        if time.time() - self.last_cache_update > 30:
-            self.modem_numbers_cache = {port: modem_manager.get_phone_number(port) for port in available_ports}
-            self.last_cache_update = time.time()
-
-        # Ищем нужный модем
-        target_port = next((port for port, phone in self.modem_numbers_cache.items() if phone == modem_phone), None)
-
-        if not target_port:
-            self.write({"status": "ERROR", "message": f"SIM {modem_phone} не найдена в модемах."})
-            self.set_status(404)
-            self.finish()
-            return
-
-        response = modem_manager.send_at_command(target_port, 'AT+CMGL="REC UNREAD",1', delay=2)
-        if not response or "ERROR" in response:
-            self.write({"status": "ERROR", "message": "Не удалось получить SMS."})
-            self.set_status(500)
-            self.finish()
-            return
-
-        sms_data = modem_manager.get_sms(target_port)
-        latest_code = None
-
-        for sms in sms_data["sms"]:
-            if sms["sender"].lstrip("+") == sender_phone:
-                latest_code = " ".join(re.findall(r'\d+', sms["message"]))
-                break
+        latest_code = get_latest_sms(modem_phone, sender_phone)
 
         if latest_code:
             self.write({"status": "SUCCESS", "code": latest_code})
         else:
-            self.write({
-                "status": "ERROR",
-                "message": f"Сообщение от {sender_phone} на SIM {modem_phone} не найдено."
-            })
+            self.write({"status": "ERROR", "message": "Сообщение не найдено."})
             self.set_status(404)
 
         self.finish()
