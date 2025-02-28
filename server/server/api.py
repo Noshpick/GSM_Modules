@@ -8,8 +8,6 @@ from tornado.ioloop import PeriodicCallback
 from modem.modem_manager import ModemManager
 import asyncio
 import time
-import ujson
-import gzip
 
 modem_manager = ModemManager()
 modem_manager.connect()
@@ -117,59 +115,59 @@ class CodeHandler(BaseHandler):
         sender_phone = self.get_argument("sender_phone", None)
 
         if not modem_phone or not sender_phone:
-            self.write_gzip({
+            self.write({
                 "status": "ERROR",
                 "message": "Отсутствуют параметры 'modem_phone' и/или 'sender_phone'. Укажите номера."
-            }, 400)
+            })
+            self.set_status(400)
+            self.finish()
             return
 
         available_ports = list(modem_manager.modems.keys())
         if not available_ports:
-            self.write_gzip({"status": "ERROR", "message": "Нет доступных модемов."}, 500)
+            self.write({"status": "ERROR", "message": "Нет доступных модемов."})
+            self.set_status(500)
+            self.finish()
             return
 
-        if time.time() - self.last_cache_update > 10:
+        if time.time() - self.last_cache_update > 30:
             self.modem_numbers_cache = {port: modem_manager.get_phone_number(port) for port in available_ports}
             self.last_cache_update = time.time()
 
+        # Ищем нужный модем
         target_port = next((port for port, phone in self.modem_numbers_cache.items() if phone == modem_phone), None)
 
         if not target_port:
-            self.write_gzip({"status": "ERROR", "message": f"SIM {modem_phone} не найдена в модемах."}, 404)
+            self.write({"status": "ERROR", "message": f"SIM {modem_phone} не найдена в модемах."})
+            self.set_status(404)
+            self.finish()
             return
 
-        response = modem_manager.send_at_command(target_port, 'AT+CMGL="REC UNREAD",1', delay=0.5)
+        response = modem_manager.send_at_command(target_port, 'AT+CMGL="REC UNREAD",1', delay=2)
         if not response or "ERROR" in response:
-            self.write_gzip({"status": "ERROR", "message": "Не удалось получить SMS."}, 500)
+            self.write({"status": "ERROR", "message": "Не удалось получить SMS."})
+            self.set_status(500)
+            self.finish()
             return
 
         sms_data = modem_manager.get_sms(target_port)
         latest_code = None
 
-        for sms in sorted(sms_data["sms"], key=lambda x: x["timestamp"], reverse=True):
+        for sms in sms_data["sms"]:
             if sms["sender"].lstrip("+") == sender_phone:
                 latest_code = " ".join(re.findall(r'\d+', sms["message"]))
                 break
 
         if latest_code:
-            self.write_gzip({"status": "SUCCESS", "code": latest_code})
+            self.write({"status": "SUCCESS", "code": latest_code})
         else:
-            self.write_gzip({
+            self.write({
                 "status": "ERROR",
                 "message": f"Сообщение от {sender_phone} на SIM {modem_phone} не найдено."
-            }, 404)
+            })
+            self.set_status(404)
 
-    def write_gzip(self, data, status_code=200):
-        self.set_status(status_code)
-        self.set_header("Content-Type", "application/json")
-        self.set_header("Content-Encoding", "gzip")
-
-        json_data = ujson.dumps(data)
-        compressed_data = gzip.compress(json_data.encode('utf-8'))
-
-        self.write(compressed_data)
         self.finish()
-
 
 def tail_logs():
     log_file_path = "logs/app.log"
