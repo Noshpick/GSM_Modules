@@ -246,16 +246,15 @@ class ModemManager:
             start_time = time.time()
 
             if port not in self.modems:
-                logging.error(f"Модем {port} не подключён!")
                 return {"sms": [], "error": f"Модем {port} не подключён"}
 
             self.send_at_command(port, "AT+CMGF=1")
             response = self.send_at_command(port, 'AT+CMGL="ALL"')
+
             if not response or "ERROR" in response:
                 return {"sms": []}
 
             messages = response.split("+CMGL: ")[1:]
-
             sms_dict = {}
 
             for sms in messages:
@@ -275,7 +274,6 @@ class ModemManager:
                 try:
                     timestamp = datetime.strptime(f"{date} {time_str}", "%d/%m/%y %H:%M:%S%z")
                 except ValueError:
-                    logging.warning(f"Ошибка парсинга времени: {date} {time_str}, используется текущее время")
                     timestamp = datetime.now()
 
                 if not include_111 and sender == "111":
@@ -284,15 +282,7 @@ class ModemManager:
                 key = (sender, date)
 
                 if key in sms_dict:
-                    if abs((timestamp - sms_dict[key]["timestamp"]).total_seconds()) < 300:
-                        sms_dict[key]["message"] += " " + message
-                    else:
-                        sms_dict[key + (len(sms_dict),)] = {
-                            "id": header[0].strip(),
-                            "sender": sender,
-                            "message": message,
-                            "timestamp": timestamp
-                        }
+                    sms_dict[key]["message"] += " " + message
                 else:
                     sms_dict[key] = {
                         "id": header[0].strip(),
@@ -301,12 +291,9 @@ class ModemManager:
                         "timestamp": timestamp
                     }
 
-            sms_list = list(sms_dict.values())
-            logging.info(f"Получено {len(sms_list)} SMS с {port} за {round(time.time() - start_time, 3)} сек")
-            return {"sms": sms_list}
+            return {"sms": list(sms_dict.values())}
 
         except Exception as e:
-            logging.error(f"Ошибка в get_sms ({port}): {e}")
             return {"sms": [], "error": str(e)}
 
     async def update_sms_cache(self):
