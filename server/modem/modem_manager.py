@@ -2,8 +2,8 @@ import asyncio
 import subprocess
 import serial
 import serial.tools.list_ports
-import json
 import logging
+import ujson as json
 import platform
 import re
 import time
@@ -25,6 +25,8 @@ class ModemManager:
 
         self.set_usb_permissions()
         self.refresh_modems()
+
+    async def start_background_tasks(self):
         asyncio.create_task(self.update_modem_cache())
         asyncio.create_task(self.update_sms_cache())
 
