@@ -276,19 +276,9 @@ class ModemManager:
                 if not include_111 and sender == "111":
                     continue
 
-                key = (sender, date)  # Группируем по дате, а не по точному времени
-
+                key = (sender, timestamp)
                 if key in sms_dict:
-                    if abs(time.mktime(time.strptime(timestamp, "%d/%m/%y %H:%M:%S%z")) - time.mktime(
-                            time.strptime(sms_dict[key]["timestamp"], "%d/%m/%y %H:%M:%S%z"))) < 300:
-                        sms_dict[key]["message"] += " " + message
-                    else:
-                        sms_dict[key + (len(sms_dict),)] = {
-                            "id": header[0].strip(),
-                            "sender": sender,
-                            "message": message,
-                            "timestamp": timestamp
-                        }
+                    sms_dict[key]["message"] += " " + message
                 else:
                     sms_dict[key] = {
                         "id": header[0].strip(),
@@ -304,6 +294,7 @@ class ModemManager:
         except Exception as e:
             logging.error(f"Ошибка в get_sms ({port}): {e}")
             return {"sms": [], "error": str(e)}
+
     async def update_sms_cache(self):
         while True:
             try:
