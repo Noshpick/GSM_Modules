@@ -276,9 +276,19 @@ class ModemManager:
                 if not include_111 and sender == "111":
                     continue
 
-                key = (sender, timestamp)
+                key = (sender, date)
+
                 if key in sms_dict:
-                    sms_dict[key]["message"] += " " + message
+                    if abs(time.mktime(time.strptime(timestamp, "%d/%m/%y %H:%M:%S%z")) - time.mktime(
+                            time.strptime(sms_dict[key]["timestamp"], "%d/%m/%y %H:%M:%S%z"))) < 300:
+                        sms_dict[key]["message"] += " " + message
+                    else:
+                        sms_dict[key + (len(sms_dict),)] = {
+                            "id": header[0].strip(),
+                            "sender": sender,
+                            "message": message,
+                            "timestamp": timestamp
+                        }
                 else:
                     sms_dict[key] = {
                         "id": header[0].strip(),
