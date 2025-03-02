@@ -7,7 +7,7 @@ import logging
 import platform
 import re
 import time
-
+from datetime import datetime
 import tornado
 
 CONFIG_PATH = "config/config.json"
@@ -271,7 +271,12 @@ class ModemManager:
                 time_str = header[5].strip().replace('"', '')
                 sender = header[2].replace('"', '').strip()
                 message = self.pdu_decode("\n".join(parts[1:]).strip())
-                timestamp = f"{date} {time_str}"
+
+                try:
+                    timestamp = datetime.strptime(f"{date} {time_str}", "%d/%m/%y %H:%M:%S%z")
+                except ValueError:
+                    logging.warning(f"Ошибка парсинга времени: {date} {time_str}, используется текущее время")
+                    timestamp = datetime.now()
 
                 if not include_111 and sender == "111":
                     continue
@@ -279,8 +284,7 @@ class ModemManager:
                 key = (sender, date)
 
                 if key in sms_dict:
-                    if abs(time.mktime(time.strptime(timestamp, "%d/%m/%y %H:%M:%S%z")) - time.mktime(
-                            time.strptime(sms_dict[key]["timestamp"], "%d/%m/%y %H:%M:%S%z"))) < 300:
+                    if abs((timestamp - sms_dict[key]["timestamp"]).total_seconds()) < 300:
                         sms_dict[key]["message"] += " " + message
                     else:
                         sms_dict[key + (len(sms_dict),)] = {
