@@ -7,7 +7,7 @@ import logging
 import platform
 import re
 import time
-from datetime import datetime
+
 import tornado
 
 CONFIG_PATH = "config/config.json"
@@ -246,15 +246,16 @@ class ModemManager:
             start_time = time.time()
 
             if port not in self.modems:
+                logging.error(f"Модем {port} не подключён!")
                 return {"sms": [], "error": f"Модем {port} не подключён"}
 
             self.send_at_command(port, "AT+CMGF=1")
             response = self.send_at_command(port, 'AT+CMGL="ALL"')
-
             if not response or "ERROR" in response:
                 return {"sms": []}
 
             messages = response.split("+CMGL: ")[1:]
+
             sms_dict = {}
 
             for sms in messages:
@@ -270,19 +271,24 @@ class ModemManager:
                 time_str = header[5].strip().replace('"', '')
                 sender = header[2].replace('"', '').strip()
                 message = self.pdu_decode("\n".join(parts[1:]).strip())
-
-                try:
-                    timestamp = datetime.strptime(f"{date} {time_str}", "%d/%m/%y %H:%M:%S%z")
-                except ValueError:
-                    timestamp = datetime.now()
+                timestamp = f"{date} {time_str}"
 
                 if not include_111 and sender == "111":
                     continue
 
-                key = (sender, date)
+                key = (sender, date)  # Группируем по дате, а не по точному времени
 
                 if key in sms_dict:
-                    sms_dict[key]["message"] += " " + message
+                    if abs(time.mktime(time.strptime(timestamp, "%d/%m/%y %H:%M:%S%z")) - time.mktime(
+                            time.strptime(sms_dict[key]["timestamp"], "%d/%m/%y %H:%M:%S%z"))) < 300:
+                        sms_dict[key]["message"] += " " + message
+                    else:
+                        sms_dict[key + (len(sms_dict),)] = {
+                            "id": header[0].strip(),
+                            "sender": sender,
+                            "message": message,
+                            "timestamp": timestamp
+                        }
                 else:
                     sms_dict[key] = {
                         "id": header[0].strip(),
@@ -291,11 +297,13 @@ class ModemManager:
                         "timestamp": timestamp
                     }
 
-            return {"sms": list(sms_dict.values())}
+            sms_list = list(sms_dict.values())
+            logging.info(f"Получено {len(sms_list)} SMS с {port} за {round(time.time() - start_time, 3)} сек")
+            return {"sms": sms_list}
 
         except Exception as e:
+            logging.error(f"Ошибка в get_sms ({port}): {e}")
             return {"sms": [], "error": str(e)}
-
     async def update_sms_cache(self):
         while True:
             try:
