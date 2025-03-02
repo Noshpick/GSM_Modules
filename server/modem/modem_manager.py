@@ -7,7 +7,7 @@ import logging
 import platform
 import re
 import time
-from concurrent.futures import ThreadPoolExecutor
+
 import tornado
 
 CONFIG_PATH = "config/config.json"
@@ -18,15 +18,10 @@ class ModemManager:
     def __init__(self):
         self.modems = {}
         self.sms_cache = {}
-        self.modem_cache = {}
-        self.executor = ThreadPoolExecutor(max_workers=5)
-
         logging.basicConfig(filename="logs/app.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-
         self.set_usb_permissions()
         self.refresh_modems()
-        asyncio.create_task(self.update_modem_cache())
-        asyncio.create_task(self.update_sms_cache())
+        tornado.ioloop.IOLoop.current().spawn_callback(self.update_sms_cache)
 
     def set_usb_permissions(self):
         logging.info("Установка прав на USB-устройства")
@@ -121,25 +116,6 @@ class ModemManager:
             logging.warning(f"Ошибка при отключении {port}: {e}")
 
 
-    async def update_modem_cache(self):
-        while True:
-            new_cache = {}
-            for port in self.modems.keys():
-                new_cache[port] = await asyncio.get_event_loop().run_in_executor(self.executor, self.get_modem_info, port)
-
-            self.modem_cache = new_cache
-            await asyncio.sleep(10)
-
-
-    def get_modem_info(self, port):
-        return {
-            "port": port,
-            "operator": self.send_at_command(port, "AT+COPS?"),
-            "phone": self.send_at_command(port, "AT+CNUM"),
-            "balance": self.send_at_command(port, 'AT+CUSD=1,"*100#"', delay=5),
-        }
-
-
     def send_at_command(self, port, command, delay=0.2, refresh=True):
         if refresh:
             self.refresh_modems()
@@ -159,18 +135,6 @@ class ModemManager:
                 logging.debug(f"Ответ от модема {port}: {response.strip()}")
             return response.strip()
         return None
-
-
-    def get_all_modems_info(self):
-        return self.modem_cache
-
-
-    async def update_sms_cache(self):
-        while True:
-            new_sms_cache = {port: self.get_sms(port)["sms"] for port in self.modems.keys()}
-            self.sms_cache = new_sms_cache
-            await asyncio.sleep(10)
-
 
     def get_operator(self, port):
         logging.info(f"Получение оператора SIM-карты на {port}...")
@@ -324,6 +288,17 @@ class ModemManager:
         except Exception as e:
             logging.error(f"Ошибка в get_sms ({port}): {e}")
             return {"sms": [], "error": str(e)}
+
+    async def update_sms_cache(self):
+        while True:
+            try:
+                self.refresh_modems()
+                new_sms_cache = {port: self.get_sms(port)["sms"] for port in self.modems.keys()}
+                self.sms_cache = new_sms_cache
+                logging.info(f"Кэш SMS обновлён. Найденные порты: {list(self.modems.keys())}")
+            except Exception as e:
+                logging.error(f"Ошибка в update_sms_cache: {e}")
+            await asyncio.sleep(10)
 
     def close(self):
         for port, modem in self.modems.items():
