@@ -52,7 +52,8 @@ def save_modem_data():
     conn = sqlite3.connect("modem_data.db")
     cursor = conn.cursor()
 
-    for port in modem_manager.get_available_ports():
+    modem_manager.refresh_modems()
+    for port in modem_manager.modems.keys():
         balance = modem_manager.get_balance(port)
         operator = modem_manager.get_operator(port)
         phone = modem_manager.get_phone_number(port)
@@ -68,6 +69,7 @@ def save_modem_data():
 
     conn.commit()
     conn.close()
+
 
 def save_sms_data():
     conn = sqlite3.connect("modem_data.db")
