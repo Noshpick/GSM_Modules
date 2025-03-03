@@ -3,8 +3,7 @@ import tornado.ioloop
 import tornado.web
 import tornado.websocket
 import json
-import os
-import asyncio
+import time
 from modem.modem_manager import ModemManager
 
 def init_db():
@@ -129,12 +128,25 @@ class SMSHandler(tornado.web.RequestHandler):
 
 class AuditHandler(tornado.web.RequestHandler):
     def get(self):
+        global modem_cache, last_cache_update
+        start_time = time.time()
+
+        if modem_cache and (time.time() - last_cache_update) < 10:
+            print("=== Используем кешированные данные ===")
+            self.write({"status": "SUCCESS", "data": modem_cache})
+            return
+
+        print("=== Получен запрос на /audit ===")
         conn = sqlite3.connect("modem_data.db")
         cursor = conn.cursor()
+
         cursor.execute("SELECT * FROM modems")
-        modems = [{"port": row[1], "operator": row[2], "phone": row[3], "balance": row[4]} for row in cursor.fetchall()]
+        modem_cache = [{"port": row[1], "operator": row[2], "phone": row[3], "balance": row[4]} for row in cursor.fetchall()]
+        last_cache_update = time.time()
+
         conn.close()
-        self.write({"status": "SUCCESS", "data": modems})
+        print(f"=== Запрос обработан за {round(time.time() - start_time, 4)} сек ===")
+        self.write({"status": "SUCCESS", "data": modem_cache})
 
 def periodic_tasks():
     save_modem_data()
