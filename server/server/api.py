@@ -12,7 +12,7 @@ modem_cache = None
 last_cache_update = 0
 
 def init_db():
-    conn = sqlite3.connect("modem_data.db")
+    conn = sqlite3.connect("modem_data.db", isolation_level=None)
     cursor = conn.cursor()
 
     cursor.execute('''
@@ -48,12 +48,9 @@ def init_db():
 
 init_db()
 modem_manager = ModemManager()
-asyncio.create_task(modem_manager.refresh_modems())
-
-log_clients = set()
 
 async def save_modem_data():
-    conn = sqlite3.connect("modem_data.db")
+    conn = sqlite3.connect("modem_data.db", isolation_level=None)
     cursor = conn.cursor()
 
     await modem_manager.refresh_modems()
@@ -76,7 +73,7 @@ async def save_modem_data():
     conn.close()
 
 async def save_sms_data():
-    conn = sqlite3.connect("modem_data.db")
+    conn = sqlite3.connect("modem_data.db", isolation_level=None)
     cursor = conn.cursor()
 
     await modem_manager.refresh_modems()
@@ -93,7 +90,7 @@ async def save_sms_data():
     conn.close()
 
 def save_log(message):
-    conn = sqlite3.connect("modem_data.db")
+    conn = sqlite3.connect("modem_data.db", isolation_level=None)
     cursor = conn.cursor()
 
     cursor.execute('''
@@ -104,7 +101,7 @@ def save_log(message):
     conn.close()
 
 def get_logs():
-    conn = sqlite3.connect("modem_data.db")
+    conn = sqlite3.connect("modem_data.db", isolation_level=None)
     cursor = conn.cursor()
     cursor.execute("SELECT message FROM logs ORDER BY id DESC LIMIT 50")
     logs = [row[0] for row in cursor.fetchall()]
@@ -115,16 +112,16 @@ class LogsWebSocketHandler(tornado.websocket.WebSocketHandler):
     def check_origin(self, origin):
         return True
 
-    def open(self):
+    def open(self, log_clients=None):
         log_clients.add(self)
         self.write_message(json.dumps({"status": "CONNECTED", "logs": get_logs()}))
 
-    def on_close(self):
+    def on_close(self, log_clients=None):
         log_clients.discard(self)
 
 class SMSHandler(tornado.web.RequestHandler):
     def get(self):
-        conn = sqlite3.connect("modem_data.db")
+        conn = sqlite3.connect("modem_data.db", isolation_level=None)
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM sms ORDER BY timestamp DESC")
         sms_list = [{"port": row[1], "sender": row[2], "message": row[3], "timestamp": row[4]} for row in cursor.fetchall()]
@@ -139,7 +136,7 @@ class AuditHandler(tornado.web.RequestHandler):
             self.write({"status": "SUCCESS", "data": modem_cache})
             return
 
-        conn = sqlite3.connect("modem_data.db")
+        conn = sqlite3.connect("modem_data.db", isolation_level=None)
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM modems")
         modem_cache = [{"port": row[1], "operator": row[2], "phone": row[3], "balance": row[4]} for row in cursor.fetchall()]
@@ -154,7 +151,9 @@ async def periodic_tasks():
         await save_sms_data()
         await asyncio.sleep(10)
 
-asyncio.create_task(periodic_tasks())
+async def start_tasks():
+    await modem_manager.start()
+    asyncio.create_task(periodic_tasks())
 
 def make_app():
     return tornado.web.Application([
@@ -164,6 +163,8 @@ def make_app():
     ])
 
 if __name__ == "__main__":
+    asyncio.run(start_tasks())
+
     app = make_app()
     app.listen(7777, address="0.0.0.0")
     print("Сервер запущен: http://0.0.0.0:7777")

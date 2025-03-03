@@ -20,8 +20,6 @@ class ModemManager:
         self.sms_cache = {}
         logging.basicConfig(filename="logs/app.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
         self.set_usb_permissions()
-        asyncio.create_task(self.refresh_modems())
-        tornado.ioloop.IOLoop.current().spawn_callback(self.update_sms_cache)
 
     def set_usb_permissions(self):
         logging.info("Установка прав на USB-устройства")
@@ -64,6 +62,12 @@ class ModemManager:
 
         logging.info(f"Найденные модемные порты: {available_ports}")
         return available_ports
+
+
+    async def start(self):
+        await self.refresh_modems()
+        tornado.ioloop.IOLoop.current().spawn_callback(self.update_sms_cache)
+
 
     async def refresh_modems(self):
         logging.info("Обновление списка модемов...")
@@ -363,3 +367,7 @@ class ModemManager:
             modem.close()
             logging.info(f"Модем на {port} отключен")
         self.modems = {}
+
+if __name__ == "__main__":
+    modem_manager = ModemManager()
+    asyncio.run(modem_manager.start())
