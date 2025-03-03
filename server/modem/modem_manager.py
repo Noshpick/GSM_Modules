@@ -181,10 +181,12 @@ class ModemManager:
         return phone_number if phone_number else "Номер SIM недоступен"
 
     def get_balance(self, port):
+        logging.info(f"Запрос баланса для {port}...")
         response = self.send_at_command(port, 'AT+CUSD=1,"*100#",15')
 
         if not response or "ERROR" in response:
-            return None
+            logging.warning(f"Ошибка запроса баланса на {port}: {response}")
+            return "Недоступно"
 
         time.sleep(3)
         new_response = self.send_at_command(port, "")
@@ -203,9 +205,10 @@ class ModemManager:
                         return float(balance_match.group(0).replace(",", "."))
 
             except Exception as e:
-                return None
+                logging.error(f"Ошибка обработки баланса: {e}")
+                return "Недоступно"
 
-        return None
+        return "Недоступно"
 
     def pdu_decode(self, pdu_string):
         try:
