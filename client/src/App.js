@@ -17,19 +17,27 @@ export default function App() {
         return () => clearInterval(smsInterval);
     }, []);
 
-    const fetchAuditData = async () => {
-        try {
-            const response = await fetch("http://45.152.170.77:7777/audit");
-            const data = await response.json();
-            if (data.status === "SUCCESS") {
-                setAuditData(data.data);
-            } else {
-                console.error("Ошибка получения модемов:", data.message);
+const fetchAuditData = async () => {
+    try {
+        let response;
+        let attempts = 0;
+
+        while (attempts < 10)
+            response = await axios.get("http://45.152.170.77:7777/audit");
+            if (response.data.data.length > 0) {
+                break;
             }
-        } catch (error) {
-            console.error("Ошибка запроса:", error);
+            console.log("Данные еще не загружены, повтор запроса...");
+            await new Promise(res => setTimeout(res, 5000));
+            attempts++;
         }
-    };
+
+        setAuditData(response.data.data);
+        setLoading(false);
+    } catch (error) {
+        console.error("Ошибка при получении данных аудита:", error);
+    }
+};
 
 
     const fetchSmsData = async () => {

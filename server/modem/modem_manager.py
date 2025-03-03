@@ -1,4 +1,3 @@
-import asyncio
 import subprocess
 import serial
 import serial.tools.list_ports
@@ -9,6 +8,7 @@ import re
 import time
 import sqlite3
 import tornado
+import asyncio
 
 CONFIG_PATH = "config/config.json"
 with open(CONFIG_PATH) as f:
@@ -65,7 +65,7 @@ class ModemManager:
         logging.info(f"Найденные модемные порты: {available_ports}")
         return available_ports
 
-    def refresh_modems(self):
+    async def refresh_modems(self):
         logging.info("Обновление списка модемов...")
         current_ports = self.find_modem_ports()
         active_ports = list(self.modems.keys())
@@ -77,6 +77,9 @@ class ModemManager:
         for port in active_ports:
             if port not in current_ports:
                 self.disconnect_modem(port)
+
+        tasks = [self.update_modem_info(port) for port in self.modems.keys()]
+        await asyncio.gather(*tasks)
 
     def connect(self):
         self.refresh_modems()
@@ -102,6 +105,27 @@ class ModemManager:
 
         except serial.SerialException as e:
             logging.warning(f"Не удалось подключиться к {port}: {e}")
+
+    async def update_modem_info(self, port):
+        logging.info(f"Запрашиваем данные с {port}...")
+        operator = await asyncio.to_thread(self.get_operator, port)
+        phone = await asyncio.to_thread(self.get_phone_number, port)
+        balance = await asyncio.to_thread(self.get_balance, port)
+
+        conn = sqlite3.connect("modem_data.db")
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO modems (port, operator, phone, balance) 
+            VALUES (?, ?, ?, ?) 
+            ON CONFLICT(port) DO UPDATE SET 
+                operator=excluded.operator, 
+                phone=excluded.phone, 
+                balance=excluded.balance
+        ''', (port, operator, phone, balance))
+
+        conn.commit()
+        conn.close()
+        logging.info(f"Данные обновлены: {port} - {operator}, {phone}, {balance}")
 
 
     def disconnect_modem(self, port):
