@@ -22,22 +22,24 @@ const fetchAuditData = async () => {
         let response;
         let attempts = 0;
 
-        while (attempts < 10)
+        while (attempts < 10) {
             response = await axios.get("http://45.152.170.77:7777/audit");
             if (response.data.data.length > 0) {
+                setAuditData(response.data.data);
+                setLoading(false);
                 return;
             }
-            console.log("Данные еще не загружены, повтор запроса...");
+            console.log(`Попытка ${attempts + 1}: Данные еще не загружены, повтор запроса...`);
             await new Promise(res => setTimeout(res, 5000));
             attempts++;
         }
 
-        setAuditData(response.data.data);
-        setLoading(false);
+        console.warn("Превышено количество попыток получения данных.");
     } catch (error) {
         console.error("Ошибка при получении данных аудита:", error);
     }
 };
+
 
 
     const fetchSmsData = async () => {
