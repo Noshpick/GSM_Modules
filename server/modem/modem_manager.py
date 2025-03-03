@@ -7,7 +7,7 @@ import logging
 import platform
 import re
 import time
-
+import sqlite3
 import tornado
 
 CONFIG_PATH = "config/config.json"
@@ -305,6 +305,34 @@ class ModemManager:
             except Exception as e:
                 logging.error(f"Ошибка в update_sms_cache: {e}")
             await asyncio.sleep(10)
+
+    def save_sms_to_db(port, sender, message, timestamp):
+        conn = sqlite3.connect("modem_data.db")
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            INSERT INTO sms (port, sender, message, timestamp) 
+            VALUES (?, ?, ?, ?)
+        ''', (port, sender, message, timestamp))
+
+        conn.commit()
+        conn.close()
+
+    def save_modem_info(port, operator, phone, balance):
+        conn = sqlite3.connect("modem_data.db")
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            INSERT INTO modems (port, operator, phone, balance)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(port) DO UPDATE SET
+                operator=excluded.operator,
+                phone=excluded.phone,
+                balance=excluded.balance
+        ''', (port, operator, phone, balance))
+
+        conn.commit()
+        conn.close()
 
     def close(self):
         for port, modem in self.modems.items():
