@@ -19,12 +19,18 @@ export default function App() {
 
     const fetchAuditData = async () => {
         try {
-            const response = await axios.get("http://45.152.170.77:7777/audit");
-            setAuditData(response.data.data);
+            const response = await fetch("http://45.152.170.77:7777/audit");
+            const data = await response.json();
+            if (data.status === "SUCCESS") {
+                setAuditData(data.data);
+            } else {
+                console.error("Ошибка получения модемов:", data.message);
+            }
         } catch (error) {
-            console.error("Ошибка при получении данных аудита:", error);
+            console.error("Ошибка запроса:", error);
         }
     };
+
 
     const fetchSmsData = async () => {
         try {
