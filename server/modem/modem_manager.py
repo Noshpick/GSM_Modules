@@ -20,7 +20,7 @@ class ModemManager:
         self.sms_cache = {}
         logging.basicConfig(filename="logs/app.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
         self.set_usb_permissions()
-        self.refresh_modems()
+        asyncio.create_task(self.refresh_modems())
         tornado.ioloop.IOLoop.current().spawn_callback(self.update_sms_cache)
 
     def set_usb_permissions(self):
@@ -82,7 +82,7 @@ class ModemManager:
         await asyncio.gather(*tasks)
 
     def connect(self):
-        self.refresh_modems()
+        asyncio.create_task(self.refresh_modems())
         return bool(self.modems)
 
 
@@ -142,7 +142,7 @@ class ModemManager:
 
     def send_at_command(self, port, command, delay=0.2, refresh=True):
         if refresh:
-            self.refresh_modems()
+            asyncio.create_task(self.refresh_modems())
 
         modem = self.modems.get(port)
         if modem:
@@ -322,7 +322,7 @@ class ModemManager:
     async def update_sms_cache(self):
         while True:
             try:
-                self.refresh_modems()
+                asyncio.create_task(self.refresh_modems())
                 new_sms_cache = {port: self.get_sms(port)["sms"] for port in self.modems.keys()}
                 self.sms_cache = new_sms_cache
                 logging.info(f"Кэш SMS обновлён. Найденные порты: {list(self.modems.keys())}")
@@ -330,7 +330,7 @@ class ModemManager:
                 logging.error(f"Ошибка в update_sms_cache: {e}")
             await asyncio.sleep(10)
 
-    def save_sms_to_db(port, sender, message, timestamp):
+    def save_sms_to_db(self, port, sender, message, timestamp):
         conn = sqlite3.connect("modem_data.db")
         cursor = conn.cursor()
 
@@ -342,7 +342,7 @@ class ModemManager:
         conn.commit()
         conn.close()
 
-    def save_modem_info(port, operator, phone, balance):
+    def save_modem_info(self, port, operator, phone, balance):
         conn = sqlite3.connect("modem_data.db")
         cursor = conn.cursor()
 

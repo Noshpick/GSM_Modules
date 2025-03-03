@@ -5,6 +5,7 @@ import tornado.web
 import tornado.websocket
 import json
 import time
+import asyncio
 from modem.modem_manager import ModemManager
 
 modem_cache = None
@@ -47,19 +48,20 @@ def init_db():
 
 init_db()
 modem_manager = ModemManager()
-modem_manager.connect()
+asyncio.create_task(modem_manager.refresh_modems())
 
 log_clients = set()
 
-def save_modem_data():
+async def save_modem_data():
     conn = sqlite3.connect("modem_data.db")
     cursor = conn.cursor()
 
-    modem_manager.refresh_modems()
+    await modem_manager.refresh_modems()
+
     for port in modem_manager.modems.keys():
-        balance = modem_manager.get_balance(port)
-        operator = modem_manager.get_operator(port)
-        phone = modem_manager.get_phone_number(port)
+        balance = await asyncio.to_thread(modem_manager.get_balance, port)
+        operator = await asyncio.to_thread(modem_manager.get_operator, port)
+        phone = await asyncio.to_thread(modem_manager.get_phone_number, port)
 
         cursor.execute('''
             INSERT INTO modems (port, operator, phone, balance) 
@@ -73,15 +75,15 @@ def save_modem_data():
     conn.commit()
     conn.close()
 
-
-def save_sms_data():
+async def save_sms_data():
     conn = sqlite3.connect("modem_data.db")
     cursor = conn.cursor()
 
-    modem_manager.refresh_modems()
+    await modem_manager.refresh_modems()
+
     for port in modem_manager.modems.keys():
-        sms_data = modem_manager.get_sms(port)["sms"]
-        for sms in sms_data:
+        sms_data = await asyncio.to_thread(modem_manager.get_sms, port)
+        for sms in sms_data["sms"]:
             cursor.execute('''
                 INSERT INTO sms (port, sender, message, timestamp) 
                 VALUES (?, ?, ?, ?)
@@ -89,7 +91,6 @@ def save_sms_data():
 
     conn.commit()
     conn.close()
-
 
 def save_log(message):
     conn = sqlite3.connect("modem_data.db")
@@ -147,12 +148,13 @@ class AuditHandler(tornado.web.RequestHandler):
 
         self.write({"status": "SUCCESS", "data": modem_cache})
 
-def periodic_tasks():
-    save_modem_data()
-    save_sms_data()
-    tornado.ioloop.IOLoop.current().call_later(10, periodic_tasks)
+async def periodic_tasks():
+    while True:
+        await save_modem_data()
+        await save_sms_data()
+        await asyncio.sleep(10)
 
-periodic_tasks()
+asyncio.create_task(periodic_tasks())
 
 def make_app():
     return tornado.web.Application([
