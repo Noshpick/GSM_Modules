@@ -22,7 +22,7 @@ const fetchAuditData = async () => {
         let response;
         let attempts = 0;
 
-        while (attempts < 10) {
+        while (attempts < 15) {
             response = await axios.get("http://45.152.170.77:7777/audit");
             if (response.data.data.length > 0) {
                 setAuditData(response.data.data);
@@ -30,7 +30,7 @@ const fetchAuditData = async () => {
                 return;
             }
             console.log(`Попытка ${attempts + 1}: Данные еще не загружены, повтор запроса...`);
-            await new Promise(res => setTimeout(res, 5000));
+            await new Promise(res => setTimeout(res, 3000));
             attempts++;
         }
 

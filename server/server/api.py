@@ -72,6 +72,9 @@ async def save_modem_data():
     conn.commit()
     conn.close()
 
+    await asyncio.sleep(2)
+
+
 async def save_sms_data():
     conn = sqlite3.connect("modem_data.db", isolation_level=None)
     cursor = conn.cursor()
@@ -129,21 +132,27 @@ class SMSHandler(tornado.web.RequestHandler):
         self.write({"status": "SUCCESS", "data": sms_list})
 
 class AuditHandler(tornado.web.RequestHandler):
-    def get(self):
+    async def get(self):
         global modem_cache, last_cache_update
-        if modem_cache and (time.time() - last_cache_update) < 30:
-            logging.info("Используем кешированные данные.")
-            self.write({"status": "SUCCESS", "data": modem_cache})
-            return
 
-        conn = sqlite3.connect("modem_data.db", isolation_level=None)
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM modems")
-        modem_cache = [{"port": row[1], "operator": row[2], "phone": row[3], "balance": row[4]} for row in cursor.fetchall()]
-        last_cache_update = time.time()
-        conn.close()
+        for _ in range(5):
+            conn = sqlite3.connect("modem_data.db", isolation_level=None)
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM modems")
+            modem_cache = [{"port": row[1], "operator": row[2], "phone": row[3], "balance": row[4]} for row in cursor.fetchall()]
+            conn.close()
 
-        self.write({"status": "SUCCESS", "data": modem_cache})
+            if modem_cache:
+                last_cache_update = time.time()
+                self.write({"status": "SUCCESS", "data": modem_cache})
+                return
+
+            logging.info("Данные еще не загружены, пробуем еще раз...")
+            await asyncio.sleep(2)
+
+        self.write({"status": "ERROR", "message": "Данные не загружены в БД."})
+        self.set_status(500)
+
 
 async def periodic_tasks():
     while True:
