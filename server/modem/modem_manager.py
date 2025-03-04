@@ -9,7 +9,7 @@ import re
 import time
 import tornado
 from sqlalchemy.orm import Session
-from server.server.database import get_db, save_modem, save_sms, save_log
+from server.database import get_db, save_modem, save_sms, save_log
 
 CONFIG_PATH = "config/config.json"
 with open(CONFIG_PATH) as f:
