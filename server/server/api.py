@@ -91,46 +91,34 @@ class SMSHandler(BaseHandler):
 
 class AuditHandler(BaseHandler):
     def get(self):
-        try:
-            with next(get_db()) as db:
-                modems = get_all_modems(db)
-                sms_data = get_all_sms(db)
+        with next(get_db()) as db:
+            modems = get_all_modems(db)
+            sms_data = get_all_sms(db)
 
-                sms_by_modem = {}
-                for sms in sms_data:
-                    if sms.modem_id not in sms_by_modem:
-                        sms_by_modem[sms.modem_id] = []
-                    sms_by_modem[sms.modem_id].append({
-                        "sender": sms.sender,
-                        "message": sms.message,
-                        "timestamp": sms.timestamp.strftime("%Y-%m-%d %H:%M:%S")
-                    })
+            sms_by_modem = {}
+            for sms in sms_data:
+                modem_id = sms.modem_id
+                if modem_id not in sms_by_modem:
+                    sms_by_modem[modem_id] = []
+                sms_by_modem[modem_id].append({
+                    "sender": sms.sender,
+                    "message": sms.message,
+                    "timestamp": sms.timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                })
 
-                print(f"СМС по модемам: {json.dumps(sms_by_modem, indent=4, ensure_ascii=False)}")
+            all_audit_data = [
+                {
+                    "port": modem.port,
+                    "operator": modem.operator,
+                    "phone": modem.phone,
+                    "balance": modem.balance if modem.balance is not None else "Недоступно",
+                    "sms": sms_by_modem.get(modem.id, [])
+                }
+                for modem in modems
+            ]
 
-                all_audit_data = [
-                    {
-                        "port": modem.port,
-                        "operator": modem.operator,
-                        "phone": modem.phone,
-                        "balance": modem.balance if modem.balance is not None else "Недоступно",
-                        "sms": sms_by_modem.get(modem.id, [])
-                    }
-                    for modem in modems
-                ]
-
-                print(f"Аудит данные: {json.dumps(all_audit_data, indent=4, ensure_ascii=False)}")
-
-                self.write({"status": "SUCCESS", "data": all_audit_data})
-
-        except Exception as e:
-            print(f"Ошибка в AuditHandler: {e}")
-            self.set_status(500)
-            self.write({"status": "ERROR", "message": "Внутренняя ошибка сервера"})
-            self.finish()
-
-
-
+            self.set_header("Content-Type", "application/json")
+            self.write(json.dumps({"status": "SUCCESS", "data": all_audit_data}, indent=4, ensure_ascii=False))
 
 class CodeHandler(BaseHandler):
     def get(self):
