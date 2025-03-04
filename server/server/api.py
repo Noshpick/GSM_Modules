@@ -7,6 +7,7 @@ import json
 from tornado.ioloop import PeriodicCallback
 from modem.modem_manager import ModemManager
 import asyncio
+import requests
 
 modem_manager = ModemManager()
 modem_manager.connect()
@@ -155,7 +156,6 @@ class CodeHandler(BaseHandler):
 
         self.finish()
 
-
 class LastCodeHandler(BaseHandler):
     def get(self):
         modem_phone = self.get_argument("modem_phone", None)
@@ -170,32 +170,45 @@ class LastCodeHandler(BaseHandler):
             self.finish()
             return
 
-        target_port = None
-        for port in self.get_available_ports():
-            if modem_manager.get_phone_number(port) == modem_phone:
-                target_port = port
-                break
-
-        if not target_port:
+        try:
+            response = requests.get("http://45.152.170.77:7777/sms", timeout=5)
+            sms_data = response.json()
+        except requests.RequestException as e:
             self.write({
                 "status": "ERROR",
-                "message": f"Модем с номером {modem_phone} не найден."
+                "message": f"Ошибка при запросе SMS: {str(e)}"
             })
-            self.set_status(404)
+            self.set_status(500)
             self.finish()
             return
 
-        sms_data = modem_manager.sms_cache.get(target_port, {"sms": []})
+        if "data" not in sms_data:
+            self.write({
+                "status": "ERROR",
+                "message": "Некорректный формат ответа от API /sms."
+            })
+            self.set_status(500)
+            self.finish()
+            return
 
-        last_sms = next(
-            (sms for sms in reversed(sms_data["sms"]) if sms["sender"].lstrip("+") == sender_phone), None
-        )
+        last_sms = None
+
+        for modem in sms_data["data"]:
+            if modem["phone"] == modem_phone:
+
+                last_sms = next(
+                    (sms for sms in reversed(modem["messages"]) if sms["sender"].lstrip("+") == sender_phone),
+                    None
+                )
+                if last_sms:
+                    break
 
         if last_sms:
-            numeric_code = " ".join(re.findall(r'\d+', last_sms["message"]))  # Оставляем только цифры
+            numeric_code = " ".join(re.findall(r'\d+', last_sms["message"]))
             self.write({
                 "status": "SUCCESS",
                 "data": {
+                    "modem_phone": modem_phone,
                     "id": last_sms["id"],
                     "sender": last_sms["sender"],
                     "message": numeric_code,
@@ -205,12 +218,11 @@ class LastCodeHandler(BaseHandler):
         else:
             self.write({
                 "status": "ERROR",
-                "message": f"Последнее SMS от номера {sender_phone} не найдено."
+                "message": f"Последнее SMS от номера {sender_phone} не найдено на модеме {modem_phone}."
             })
             self.set_status(404)
 
         self.finish()
-
 
 
 def tail_logs():
