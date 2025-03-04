@@ -31,8 +31,12 @@ class Log(Base):
     timestamp = Column(DateTime, default=datetime.datetime.utcnow)
 
 DATABASE_URL = "sqlite:////app/server/database.db"
+
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 
 def init_db():
+    print("Попытка создать таблицы в БД...")
     Base.metadata.create_all(bind=engine)
+    print("Таблицы должны быть созданы!")
+
