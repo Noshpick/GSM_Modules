@@ -61,18 +61,32 @@ class LogsWebSocketHandler(tornado.websocket.WebSocketHandler):
 
 class SMSHandler(BaseHandler):
     def get(self):
-        with next(get_db()) as db:
-            sms_data = get_all_sms(db)
-            formatted_sms = [
-                {
-                    "port": sms.port,
-                    "sender": sms.sender,
-                    "message": sms.message,
-                    "timestamp": sms.timestamp.strftime("%Y-%m-%d %H:%M:%S")
-                }
-                for sms in sms_data
-            ]
-            self.write({"status": "SUCCESS", "data": formatted_sms})
+        try:
+            print("Получен запрос на /sms")
+            with next(get_db()) as db:
+                print("Подключение к базе данных успешно")
+                sms_data = get_all_sms(db)
+                print(f"Получено {len(sms_data)} SMS")
+
+                formatted_sms = [
+                    {
+                        "port": sms.modem_id,
+                        "sender": sms.sender,
+                        "message": sms.message,
+                        "timestamp": sms.timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                    }
+                    for sms in sms_data
+                ]
+
+                self.write({"status": "SUCCESS", "data": formatted_sms})
+                print("Ответ успешно отправлен")
+
+        except Exception as e:
+            print(f"Ошибка в SMSHandler: {e}")
+            self.set_status(500)
+            self.write({"status": "ERROR", "message": "Внутренняя ошибка сервера"})
+            self.finish()
+
 
 
 class AuditHandler(BaseHandler):
