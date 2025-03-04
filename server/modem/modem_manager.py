@@ -18,6 +18,7 @@ class ModemManager:
     def __init__(self):
         self.modems = {}
         self.sms_cache = {}
+        self.sim_cache = {}
         logging.basicConfig(filename="logs/app.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
         self.set_usb_permissions()
         self.refresh_modems()
@@ -52,6 +53,27 @@ class ModemManager:
 
         except Exception as e:
             logging.error(f"Ошибка изменения прав USB: {e}")
+
+
+    async def update_sim_cache(self):
+        while True:
+            try:
+                self.refresh_modems()
+                new_sim_cache = {}
+
+                for port in self.modems.keys():
+                    phone_number = self.get_phone_number(port)
+                    if phone_number and phone_number != "Номер SIM недоступен":
+                        new_sim_cache[port] = phone_number
+
+                self.sim_cache = new_sim_cache
+                logging.info(f"Кэш SIM-карт обновлён: {self.sim_cache}")
+
+            except Exception as e:
+                logging.error(f"Ошибка в update_sim_cache: {e}")
+
+            await asyncio.sleep(30)
+
 
     def find_modem_ports(self):
         logging.info("Поиск доступных модемов...")

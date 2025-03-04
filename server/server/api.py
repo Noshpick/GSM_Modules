@@ -170,38 +170,42 @@ class LastCodeHandler(BaseHandler):
             self.finish()
             return
 
+        target_port = next((port for port, phone in modem_manager.sim_cache.items() if phone == modem_phone), None)
+
+        if not target_port:
+            self.write({
+                "status": "ERROR",
+                "message": f"Модем с номером {modem_phone} не найден. Доступные модемы: {list(modem_manager.sim_cache.values())}"
+            })
+            self.set_status(404)
+            self.finish()
+            return
+
         try:
-            response = requests.get("http://45.152.170.77:7777/sms", timeout=5)
-            sms_data = response.json()
+            sms_response = requests.get("http://45.152.170.77:7777/sms", timeout=10)
+            sms_data = sms_response.json()
         except requests.RequestException as e:
             self.write({
                 "status": "ERROR",
-                "message": f"Ошибка при запросе SMS: {str(e)}"
+                "message": f"Ошибка при запросе /sms: {str(e)}"
             })
             self.set_status(500)
             self.finish()
             return
 
-        if "data" not in sms_data:
+        if "data" not in sms_data or target_port not in sms_data["data"]:
             self.write({
                 "status": "ERROR",
-                "message": "Некорректный формат ответа от API /sms."
+                "message": f"SMS для модема {modem_phone} (порт {target_port}) не найдены."
             })
-            self.set_status(500)
+            self.set_status(404)
             self.finish()
             return
 
-        last_sms = None
-
-        for modem in sms_data["data"]:
-            if modem["phone"] == modem_phone:
-
-                last_sms = next(
-                    (sms for sms in reversed(modem["messages"]) if sms["sender"].lstrip("+") == sender_phone),
-                    None
-                )
-                if last_sms:
-                    break
+        last_sms = next(
+            (sms for sms in reversed(sms_data["data"][target_port]) if sms["sender"].lstrip("+") == sender_phone),
+            None
+        )
 
         if last_sms:
             numeric_code = " ".join(re.findall(r'\d+', last_sms["message"]))
@@ -209,6 +213,7 @@ class LastCodeHandler(BaseHandler):
                 "status": "SUCCESS",
                 "data": {
                     "modem_phone": modem_phone,
+                    "port": target_port,
                     "id": last_sms["id"],
                     "sender": last_sms["sender"],
                     "message": numeric_code,
@@ -223,6 +228,7 @@ class LastCodeHandler(BaseHandler):
             self.set_status(404)
 
         self.finish()
+
 
 
 def tail_logs():
