@@ -77,33 +77,45 @@ class SMSHandler(BaseHandler):
 
 class AuditHandler(BaseHandler):
     def get(self):
-        with next(get_db()) as db:
-            modems = get_all_modems(db)
-            sms_data = get_all_sms(db)
+        try:
+            with next(get_db()) as db:
+                modems = get_all_modems(db)
+                sms_data = get_all_sms(db)
 
-            sms_by_port = {}
-            for sms in sms_data:
-                if sms.port not in sms_by_port:
-                    sms_by_port[sms.port] = []
-                sms_by_port[sms.port].append({
-                    "sender": sms.sender,
-                    "message": sms.message,
-                    "timestamp": sms.timestamp.strftime("%Y-%m-%d %H:%M:%S")
-                })
+                if not modems:
+                    modems = []
+                if not sms_data:
+                    sms_data = []
 
-            # Формируем JSON для /audit
-            all_audit_data = [
-                {
-                    "port": modem.port,
-                    "operator": modem.operator.strip(),
-                    "phone": modem.phone if modem.phone else "Номер SIM недоступен",
-                    "balance": modem.balance if modem.balance is not None else "Недоступно",
-                    "sms": sms_by_port.get(modem.port, [])
-                }
-                for modem in modems
-            ]
+                sms_by_port = {}
+                for sms in sms_data:
+                    port = getattr(sms, "port", None)
+                    if port:
+                        if port not in sms_by_port:
+                            sms_by_port[port] = []
+                        sms_by_port[port].append({
+                            "sender": sms.sender,
+                            "message": sms.message,
+                            "timestamp": sms.timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                        })
 
-            self.write({"status": "SUCCESS", "data": all_audit_data})
+                all_audit_data = [
+                    {
+                        "port": modem.port,
+                        "operator": modem.operator.strip() if modem.operator else "Неизвестно",
+                        "phone": modem.phone if modem.phone else "Номер SIM недоступен",
+                        "balance": modem.balance if modem.balance is not None else "Недоступно",
+                        "sms": sms_by_port.get(modem.port, [])
+                    }
+                    for modem in modems
+                ]
+
+                self.write({"status": "SUCCESS", "data": all_audit_data})
+        except Exception as e:
+            self.set_status(500)
+            self.write({"status": "ERROR", "message": str(e)})
+            print(f"Ошибка в /audit: {e}")
+
 
 
 class CodeHandler(BaseHandler):

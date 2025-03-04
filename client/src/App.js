@@ -9,7 +9,7 @@ export default function App() {
     const [showLogs, setShowLogs] = useState(false);
 
     useEffect(() => {
-        axios.get("http://45.152.170.77:7777/modems").then((res) => setAuditData(res.data.data));
+        axios.get("http://45.152.170.77:7777/audit").then((res) => setAuditData(res.data.data));
         axios.get("http://45.152.170.77:7777/sms").then((res) => setSmsData(res.data.data));
     }, []);
 
