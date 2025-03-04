@@ -6,7 +6,7 @@ import asyncio
 import re
 from modem.modem_manager import ModemManager
 
-from server.server.database import get_db, get_all_modems, get_all_sms, get_logs, save_log
+from server.database import get_db, get_all_modems, get_all_sms, get_logs, save_log
 
 modem_manager = ModemManager()
 modem_manager.connect()
