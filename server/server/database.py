@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session
 from .models import Modem, SMS, Log, SessionLocal
+from sqlalchemy.sql import text
 
 def get_db():
     db = SessionLocal()
