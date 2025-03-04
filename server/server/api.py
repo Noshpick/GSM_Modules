@@ -79,16 +79,31 @@ class AuditHandler(BaseHandler):
     def get(self):
         with next(get_db()) as db:
             modems = get_all_modems(db)
+            sms_data = get_all_sms(db)
+
+            sms_by_modem = {}
+            for sms in sms_data:
+                if sms.modem_id not in sms_by_modem:
+                    sms_by_modem[sms.modem_id] = []
+                sms_by_modem[sms.modem_id].append({
+                    "sender": sms.sender,
+                    "message": sms.message,
+                    "timestamp": sms.timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                })
+
             all_audit_data = [
                 {
                     "port": modem.port,
                     "operator": modem.operator,
                     "phone": modem.phone,
                     "balance": modem.balance if modem.balance is not None else "Недоступно",
+                    "sms": sms_by_modem.get(modem.id, [])
                 }
                 for modem in modems
             ]
+
             self.write({"status": "SUCCESS", "data": all_audit_data})
+
 
 
 class CodeHandler(BaseHandler):
