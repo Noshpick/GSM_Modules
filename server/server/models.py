@@ -14,6 +14,7 @@ class Modem(Base):
     balance = Column(Float, nullable=True)
     last_updated = Column(DateTime, default=datetime.datetime.utcnow)
 
+
 class SMS(Base):
     __tablename__ = "sms"
 
@@ -23,6 +24,7 @@ class SMS(Base):
     message = Column(Text, nullable=False)
     timestamp = Column(DateTime, default=datetime.datetime.utcnow)
 
+
 class Log(Base):
     __tablename__ = "logs"
 
@@ -30,13 +32,15 @@ class Log(Base):
     message = Column(Text, nullable=False)
     timestamp = Column(DateTime, default=datetime.datetime.utcnow)
 
+
 DATABASE_URL = "sqlite:////app/server/database.db"
 
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 
-def init_db():
-    print("Попытка создать таблицы в БД...")
-    Base.metadata.create_all(bind=engine)
-    print("Таблицы должны быть созданы!")
 
+def init_db():
+    Base.metadata.create_all(bind=engine)
+
+    from .database import fix_sms_table
+    fix_sms_table()

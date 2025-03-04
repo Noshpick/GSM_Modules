@@ -96,11 +96,18 @@ class AuditHandler(BaseHandler):
             sms_data = get_all_sms(db)
 
             sms_by_modem = {}
+            seen_messages = set()
+
             for sms in sms_data:
-                modem_id = sms.modem_id
-                if modem_id not in sms_by_modem:
-                    sms_by_modem[modem_id] = []
-                sms_by_modem[modem_id].append({
+                sms_key = (sms.modem_id, sms.sender, sms.message, sms.timestamp)
+                if sms_key in seen_messages:
+                    continue
+                seen_messages.add(sms_key)
+
+                if sms.modem_id not in sms_by_modem:
+                    sms_by_modem[sms.modem_id] = []
+
+                sms_by_modem[sms.modem_id].append({
                     "sender": sms.sender,
                     "message": sms.message,
                     "timestamp": sms.timestamp.strftime("%Y-%m-%d %H:%M:%S")
@@ -119,6 +126,7 @@ class AuditHandler(BaseHandler):
 
             self.set_header("Content-Type", "application/json")
             self.write(json.dumps({"status": "SUCCESS", "data": all_audit_data}, indent=4, ensure_ascii=False))
+
 
 class CodeHandler(BaseHandler):
     def get(self):
