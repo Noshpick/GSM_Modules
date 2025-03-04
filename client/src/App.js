@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState } from "react";
 import axios from "axios";
 
 export default function App() {
@@ -7,91 +7,48 @@ export default function App() {
     const [logs, setLogs] = useState([]);
     const [loading, setLoading] = useState(true);
     const [showLogs, setShowLogs] = useState(false);
-    const [error, setError] = useState(null);
-
-    const wsRef = useRef(null);
-    const abortControllerRef = useRef(new AbortController());
 
     useEffect(() => {
         fetchAuditData();
         fetchSmsData();
         setupWebSocket();
 
-        const auditInterval = setInterval(fetchAuditData, 10000);
         const smsInterval = setInterval(fetchSmsData, 10000);
-
-        return () => {
-            clearInterval(auditInterval);
-            clearInterval(smsInterval);
-            if (wsRef.current) {
-                wsRef.current.close();
-            }
-            abortControllerRef.current.abort();
-        };
+        return () => clearInterval(smsInterval);
     }, []);
 
     const fetchAuditData = async () => {
-        abortControllerRef.current.abort();
-        abortControllerRef.current = new AbortController();
-
         try {
-            const response = await axios.get("http://45.152.170.77:7777/audit", {
-                signal: abortControllerRef.current.signal,
-                timeout: 5000,
-            });
+            const response = await axios.get("http://45.152.170.77:7777/audit");
             setAuditData(response.data.data);
-            setError(null);
         } catch (error) {
             console.error("Ошибка при получении данных аудита:", error);
-            setError("Ошибка загрузки данных модемов.");
         }
     };
 
     const fetchSmsData = async () => {
-        abortControllerRef.current.abort();
-        abortControllerRef.current = new AbortController();
-
         try {
-            const response = await axios.get("http://45.152.170.77:7777/sms", {
-                signal: abortControllerRef.current.signal,
-                timeout: 5000,
-            });
+            const response = await axios.get("http://45.152.170.77:7777/sms");
             setSmsData(response.data.data);
             setLoading(false);
-            setError(null);
         } catch (error) {
             console.error("Ошибка при получении SMS:", error);
-            setError("Ошибка загрузки SMS.");
         }
     };
 
     const setupWebSocket = () => {
-        if (wsRef.current) {
-            wsRef.current.close();
-        }
+        const ws = new WebSocket("ws://45.152.170.77:7777/ws/logs");
 
-        wsRef.current = new WebSocket("ws://45.152.170.77:7777/ws/logs");
-
-        wsRef.current.onmessage = (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                if (data.status === "LOG") {
-                    setLogs((prevLogs) => [...prevLogs.slice(-49), data.message]);
-                }
-            } catch (error) {
-                console.error("Ошибка обработки данных WebSocket:", error);
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            if (data.status === "LOG") {
+                setLogs((prevLogs) => [...prevLogs.slice(-49), data.message]);
             }
         };
 
-        wsRef.current.onopen = () => console.log("WebSocket подключён");
-        wsRef.current.onerror = (error) => {
-            console.error("Ошибка WebSocket:", error);
-            setTimeout(setupWebSocket, 5000);
-        };
-        wsRef.current.onclose = () => {
-            console.log("WebSocket отключён. Переподключение...");
-            setTimeout(setupWebSocket, 5000);
-        };
+        ws.onopen = () => console.log("WebSocket подключён");
+        ws.onerror = (error) => console.error("Ошибка WebSocket:", error);
+        ws.onclose = () => console.log("WebSocket отключён");
     };
 
     const toggleLogs = () => {
@@ -105,8 +62,6 @@ export default function App() {
     return (
         <div className="container mx-auto p-4">
             <h1 className="text-2xl font-bold mb-4">GSM Dashboard</h1>
-
-            {error && <p className="text-red-500">{error}</p>}
 
             <h2 className="text-xl font-semibold mt-4">Модемы</h2>
             {auditData.length > 0 ? (
@@ -146,14 +101,14 @@ export default function App() {
                 ))
             )}
 
-            <button
+            <button 
                 className="fixed top-4 right-4 bg-blue-500 text-white px-4 py-2 rounded shadow-lg transition duration-300"
                 onClick={toggleLogs}
             >
                 {showLogs ? "Скрыть логи" : "Показать логи"}
             </button>
 
-            <div
+            <div 
                 className="fixed top-0 right-0 w-80 h-full bg-gray-900 text-white p-4 log-container"
                 style={{ overflowY: "auto" }}
             >
