@@ -1,3 +1,4 @@
+import asyncio
 import subprocess
 import serial
 import serial.tools.list_ports
@@ -6,9 +7,8 @@ import logging
 import platform
 import re
 import time
-import sqlite3
+
 import tornado
-import asyncio
 
 CONFIG_PATH = "config/config.json"
 with open(CONFIG_PATH) as f:
@@ -20,6 +20,8 @@ class ModemManager:
         self.sms_cache = {}
         logging.basicConfig(filename="logs/app.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
         self.set_usb_permissions()
+        self.refresh_modems()
+        tornado.ioloop.IOLoop.current().spawn_callback(self.update_sms_cache)
 
     def set_usb_permissions(self):
         logging.info("Установка прав на USB-устройства")
@@ -63,13 +65,7 @@ class ModemManager:
         logging.info(f"Найденные модемные порты: {available_ports}")
         return available_ports
 
-
-    async def start(self):
-        await self.refresh_modems()
-        tornado.ioloop.IOLoop.current().spawn_callback(self.update_sms_cache)
-
-
-    async def refresh_modems(self):
+    def refresh_modems(self):
         logging.info("Обновление списка модемов...")
         current_ports = self.find_modem_ports()
         active_ports = list(self.modems.keys())
@@ -82,11 +78,8 @@ class ModemManager:
             if port not in current_ports:
                 self.disconnect_modem(port)
 
-        tasks = [self.update_modem_info(port) for port in self.modems.keys()]
-        await asyncio.gather(*tasks)
-
     def connect(self):
-        asyncio.create_task(self.refresh_modems())
+        self.refresh_modems()
         return bool(self.modems)
 
 
@@ -110,27 +103,6 @@ class ModemManager:
         except serial.SerialException as e:
             logging.warning(f"Не удалось подключиться к {port}: {e}")
 
-    async def update_modem_info(self, port):
-        logging.info(f"Запрашиваем данные с {port}...")
-        operator = await asyncio.to_thread(self.get_operator, port)
-        phone = await asyncio.to_thread(self.get_phone_number, port)
-        balance = await asyncio.to_thread(self.get_balance, port)
-
-        conn = sqlite3.connect("modem_data.db")
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT INTO modems (port, operator, phone, balance) 
-            VALUES (?, ?, ?, ?) 
-            ON CONFLICT(port) DO UPDATE SET 
-                operator=excluded.operator, 
-                phone=excluded.phone, 
-                balance=excluded.balance
-        ''', (port, operator, phone, balance))
-
-        conn.commit()
-        conn.close()
-        logging.info(f"Данные обновлены: {port} - {operator}, {phone}, {balance}")
-
 
     def disconnect_modem(self, port):
         try:
@@ -146,7 +118,7 @@ class ModemManager:
 
     def send_at_command(self, port, command, delay=0.2, refresh=True):
         if refresh:
-            asyncio.create_task(self.refresh_modems())
+            self.refresh_modems()
 
         modem = self.modems.get(port)
         if modem:
@@ -326,7 +298,7 @@ class ModemManager:
     async def update_sms_cache(self):
         while True:
             try:
-                asyncio.create_task(self.refresh_modems())
+                self.refresh_modems()
                 new_sms_cache = {port: self.get_sms(port)["sms"] for port in self.modems.keys()}
                 self.sms_cache = new_sms_cache
                 logging.info(f"Кэш SMS обновлён. Найденные порты: {list(self.modems.keys())}")
@@ -334,40 +306,8 @@ class ModemManager:
                 logging.error(f"Ошибка в update_sms_cache: {e}")
             await asyncio.sleep(10)
 
-    def save_sms_to_db(self, port, sender, message, timestamp):
-        conn = sqlite3.connect("modem_data.db")
-        cursor = conn.cursor()
-
-        cursor.execute('''
-            INSERT INTO sms (port, sender, message, timestamp) 
-            VALUES (?, ?, ?, ?)
-        ''', (port, sender, message, timestamp))
-
-        conn.commit()
-        conn.close()
-
-    def save_modem_info(self, port, operator, phone, balance):
-        conn = sqlite3.connect("modem_data.db")
-        cursor = conn.cursor()
-
-        cursor.execute('''
-            INSERT INTO modems (port, operator, phone, balance)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(port) DO UPDATE SET
-                operator=excluded.operator,
-                phone=excluded.phone,
-                balance=excluded.balance
-        ''', (port, operator, phone, balance))
-
-        conn.commit()
-        conn.close()
-
     def close(self):
         for port, modem in self.modems.items():
             modem.close()
             logging.info(f"Модем на {port} отключен")
         self.modems = {}
-
-if __name__ == "__main__":
-    modem_manager = ModemManager()
-    asyncio.run(modem_manager.start())

@@ -4,5 +4,5 @@ import tornado.ioloop
 if __name__ == "__main__":
     app = make_app()
     app.listen(7777, address="0.0.0.0")
-    print("Сервер запущен: http://0.0.0.0:7777")
+    print("Запуск на http://0.0.0.0:7777")
     tornado.ioloop.IOLoop.current().start()

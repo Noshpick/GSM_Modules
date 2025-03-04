@@ -17,30 +17,14 @@ export default function App() {
         return () => clearInterval(smsInterval);
     }, []);
 
-const fetchAuditData = async () => {
-    try {
-        let response;
-        let attempts = 0;
-
-        while (attempts < 15) {
-            response = await axios.get("http://45.152.170.77:7777/audit");
-            if (response.data.data.length > 0) {
-                setAuditData(response.data.data);
-                setLoading(false);
-                return;
-            }
-            console.log(`Попытка ${attempts + 1}: Данные еще не загружены, повтор запроса...`);
-            await new Promise(res => setTimeout(res, 3000));
-            attempts++;
+    const fetchAuditData = async () => {
+        try {
+            const response = await axios.get("http://45.152.170.77:7777/audit");
+            setAuditData(response.data.data);
+        } catch (error) {
+            console.error("Ошибка при получении данных аудита:", error);
         }
-
-        console.warn("Превышено количество попыток получения данных.");
-    } catch (error) {
-        console.error("Ошибка при получении данных аудита:", error);
-    }
-};
-
-
+    };
 
     const fetchSmsData = async () => {
         try {

@@ -1,180 +1,209 @@
-import logging
-import sqlite3
 import tornado.ioloop
 import tornado.web
 import tornado.websocket
+import re
+import os
 import json
-import time
-import asyncio
+from tornado.ioloop import PeriodicCallback
 from modem.modem_manager import ModemManager
+import asyncio
 
-modem_cache = None
-last_cache_update = 0
-
-def init_db():
-    conn = sqlite3.connect("modem_data.db", isolation_level=None)
-    cursor = conn.cursor()
-
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS modems (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            port TEXT UNIQUE,
-            operator TEXT,
-            phone TEXT,
-            balance TEXT
-        )
-    ''')
-
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS sms (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            port TEXT,
-            sender TEXT,
-            message TEXT,
-            timestamp TEXT
-        )
-    ''')
-
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            message TEXT,
-            timestamp TEXT
-        )
-    ''')
-
-    conn.commit()
-    conn.close()
-
-init_db()
 modem_manager = ModemManager()
+modem_manager.connect()
 
-async def save_modem_data():
-    conn = sqlite3.connect("modem_data.db", isolation_level=None)
-    cursor = conn.cursor()
+log_clients = set()
 
-    await modem_manager.refresh_modems()
+class BaseHandler(tornado.web.RequestHandler):
+    
+    def set_default_headers(self):
+        self.set_header("Access-Control-Allow-Origin", "*")
+        self.set_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS, DELETE, PUT")
+        self.set_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
-    for port in modem_manager.modems.keys():
-        balance = await asyncio.to_thread(modem_manager.get_balance, port)
-        operator = await asyncio.to_thread(modem_manager.get_operator, port)
-        phone = await asyncio.to_thread(modem_manager.get_phone_number, port)
+    def options(self, *args, **kwargs):
+        self.set_status(204)
+        self.finish()
 
-        cursor.execute('''
-            INSERT INTO modems (port, operator, phone, balance) 
-            VALUES (?, ?, ?, ?) 
-            ON CONFLICT(port) DO UPDATE SET 
-                operator=excluded.operator, 
-                phone=excluded.phone, 
-                balance=excluded.balance
-        ''', (port, operator, phone, balance))
+    def get_available_ports(self):
+        modem_manager.refresh_modems()
+        return list(modem_manager.modems.keys())
 
-    conn.commit()
-    conn.close()
+    def get_request_port(self):
+        port = self.get_argument("port", None)
+        available_ports = self.get_available_ports()
 
-    await asyncio.sleep(2)
+        if not port:
+            self.write({
+                "status": "ERROR",
+                "message": f"Отсутствует параметр 'port'. Доступные порты: {available_ports}"
+            })
+            self.set_status(400)
+            self.finish()
+            return None
 
+        if port not in available_ports:
+            self.write({
+                "status": "ERROR",
+                "message": f"Неверный параметр 'port'. Укажите один из доступных портов: {available_ports}"
+            })
+            self.set_status(400)
+            self.finish()
+            return None
 
-async def save_sms_data():
-    conn = sqlite3.connect("modem_data.db", isolation_level=None)
-    cursor = conn.cursor()
-
-    await modem_manager.refresh_modems()
-
-    for port in modem_manager.modems.keys():
-        sms_data = await asyncio.to_thread(modem_manager.get_sms, port)
-        for sms in sms_data["sms"]:
-            cursor.execute('''
-                INSERT INTO sms (port, sender, message, timestamp) 
-                VALUES (?, ?, ?, ?)
-            ''', (port, sms["sender"], sms["message"], sms["timestamp"]))
-
-    conn.commit()
-    conn.close()
-
-def save_log(message):
-    conn = sqlite3.connect("modem_data.db", isolation_level=None)
-    cursor = conn.cursor()
-
-    cursor.execute('''
-        INSERT INTO logs (message, timestamp) VALUES (?, datetime('now'))
-    ''', (message,))
-
-    conn.commit()
-    conn.close()
-
-def get_logs():
-    conn = sqlite3.connect("modem_data.db", isolation_level=None)
-    cursor = conn.cursor()
-    cursor.execute("SELECT message FROM logs ORDER BY id DESC LIMIT 50")
-    logs = [row[0] for row in cursor.fetchall()]
-    conn.close()
-    return logs
+        return port
 
 class LogsWebSocketHandler(tornado.websocket.WebSocketHandler):
+
     def check_origin(self, origin):
         return True
 
-    def open(self, log_clients=None):
+    def open(self):
         log_clients.add(self)
-        self.write_message(json.dumps({"status": "CONNECTED", "logs": get_logs()}))
+        self.write_message(json.dumps({"status": "CONNECTED", "message": "WebSocket открыт"}))
+        asyncio.get_event_loop().call_later(1, self.send_latest_logs)
+        self.send_latest_logs()
 
-    def on_close(self, log_clients=None):
+    def on_close(self):
         log_clients.discard(self)
 
-class SMSHandler(tornado.web.RequestHandler):
+    def send_latest_logs(self):
+        log_file_path = "logs/app.log"
+        if os.path.exists(log_file_path):
+            with open(log_file_path, "r") as log_file:
+                logs = log_file.readlines()[-50:]
+                self.write_message(json.dumps({"status": "SUCCESS", "logs": logs}))
+
+    @staticmethod
+    def broadcast_log(log_message):
+        for client in list(log_clients):
+            try:
+                client.write_message(json.dumps({"status": "LOG", "message": log_message}))
+            except:
+                log_clients.discard(client)
+
+class SMSHandler(BaseHandler):
     def get(self):
-        conn = sqlite3.connect("modem_data.db", isolation_level=None)
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM sms ORDER BY timestamp DESC")
-        sms_list = [{"port": row[1], "sender": row[2], "message": row[3], "timestamp": row[4]} for row in cursor.fetchall()]
-        conn.close()
-        self.write({"status": "SUCCESS", "data": sms_list})
-
-class AuditHandler(tornado.web.RequestHandler):
-    async def get(self):
-        global modem_cache, last_cache_update
-
-        for _ in range(5):
-            conn = sqlite3.connect("modem_data.db", isolation_level=None)
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM modems")
-            modem_cache = [{"port": row[1], "operator": row[2], "phone": row[3], "balance": row[4]} for row in cursor.fetchall()]
-            conn.close()
-
-            if modem_cache:
-                last_cache_update = time.time()
-                self.write({"status": "SUCCESS", "data": modem_cache})
-                return
-
-            logging.info("Данные еще не загружены, пробуем еще раз...")
-            await asyncio.sleep(2)
-
-        self.write({"status": "ERROR", "message": "Данные не загружены в БД."})
-        self.set_status(500)
+        self.write({"status": "SUCCESS", "data": modem_manager.sms_cache})
 
 
-async def periodic_tasks():
-    while True:
-        await save_modem_data()
-        await save_sms_data()
-        await asyncio.sleep(10)
+class AuditHandler(BaseHandler):
+    def get(self):
+        all_audit_data = []
 
-async def start_tasks():
-    await modem_manager.start()
-    asyncio.create_task(periodic_tasks())
+        for port in self.get_available_ports():
+            balance = modem_manager.get_balance(port)
+
+            modem_data = {
+                "port": port,
+                "operator": modem_manager.get_operator(port),
+                "phone": modem_manager.get_phone_number(port),
+                "balance": balance if balance is not None else "Недоступно",
+                "messages": modem_manager.get_sms(port)["sms"]
+            }
+            all_audit_data.append(modem_data)
+
+        self.write({"status": "SUCCESS", "data": all_audit_data})
+
+class CodeHandler(BaseHandler):
+    def get(self):
+        phone_number = self.get_argument("phone", None)
+
+        if not phone_number:
+            self.write({
+                "status": "ERROR",
+                "message": "Отсутствует параметр 'phone'. Укажите номер отправителя."
+            })
+            self.set_status(400)
+            self.finish()
+            return
+
+        extracted_codes = {}
+
+        available_ports = self.get_available_ports()
+
+        if not available_ports:
+            self.write({"status": "ERROR", "message": "Нет доступных модемов."})
+            self.set_status(500)
+            self.finish()
+            return
+
+        for port in available_ports:
+            modem_manager.send_at_command(port, 'AT+CMGL="ALL"')
+            sms_data = modem_manager.get_sms(port)
+            codes = []
+
+            for sms in sms_data["sms"]:
+                sender = sms["sender"].lstrip("+")
+
+                if sender == phone_number:
+                    numeric_code = " ".join(re.findall(r'\d+', sms["message"]))
+
+                    codes.append({
+                        "id": sms["id"],
+                        "sender": sms["sender"],
+                        "message": numeric_code,
+                        "timestamp": sms["timestamp"]
+                    })
+
+            extracted_codes[port] = codes
+
+        if all(len(codes) == 0 for codes in extracted_codes.values()):
+            self.write({"status": "ERROR", "message": f"Сообщения от номера {phone_number} не найдены."})
+            self.set_status(404)
+        else:
+            self.write({"status": "SUCCESS", "data": extracted_codes})
+
+        self.finish()
+
+
+def tail_logs():
+    log_file_path = "logs/app.log"
+    if not os.path.exists(log_file_path):
+        return
+    
+    last_pos = 0
+    
+    def check_new_logs():
+        nonlocal last_pos
+        if not os.path.exists(log_file_path):
+            return
+        
+        with open(log_file_path, "r") as f:
+            f.seek(last_pos)
+            new_logs = f.readlines()
+            last_pos = f.tell()
+        
+        for line in new_logs:
+            LogsWebSocketHandler.broadcast_log(line.strip())
+        
+        tornado.ioloop.IOLoop.current().call_later(1, check_new_logs)
+    
+    check_new_logs()
+
+
+def periodic_refresh():
+    modem_manager.refresh_modems()
+    tornado.ioloop.IOLoop.current().call_later(10, periodic_refresh)
+
+def start_log_watcher():
+    PeriodicCallback(tail_logs, 4000).start()
+
+periodic_refresh()
+start_log_watcher()
 
 def make_app():
     return tornado.web.Application([
         (r"/sms", SMSHandler),
         (r"/audit", AuditHandler),
+        (r"/code", CodeHandler),
         (r"/ws/logs", LogsWebSocketHandler),
     ])
 
-if __name__ == "__main__":
-    asyncio.run(start_tasks())
 
+
+if __name__ == "__main__":
     app = make_app()
     app.listen(7777, address="0.0.0.0")
     print("Сервер запущен: http://0.0.0.0:7777")
+    modem_manager.refresh_sms()
     tornado.ioloop.IOLoop.current().start()
