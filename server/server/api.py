@@ -229,8 +229,6 @@ class LastCodeHandler(BaseHandler):
 
         self.finish()
 
-
-
 def tail_logs():
     log_file_path = "logs/app.log"
     if not os.path.exists(log_file_path):

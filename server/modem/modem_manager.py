@@ -7,6 +7,7 @@ import logging
 import platform
 import re
 import time
+import requests
 
 import tornado
 
@@ -54,23 +55,26 @@ class ModemManager:
         except Exception as e:
             logging.error(f"Ошибка изменения прав USB: {e}")
 
-
     async def update_sim_cache(self):
         while True:
             try:
-                self.refresh_modems()
-                new_sim_cache = {}
+                logging.info("Обновляем кэш номеров SIM через /audit...")
 
-                for port in self.modems.keys():
-                    phone_number = self.get_phone_number(port)
-                    if phone_number and phone_number != "Номер SIM недоступен":
-                        new_sim_cache[port] = phone_number
+                response = requests.get("http://45.152.170.77:7777/audit", timeout=10)
+                audit_data = response.json()
+
+                if "data" not in audit_data:
+                    logging.error("Ошибка: /audit не содержит 'data'")
+                    continue
+
+                new_sim_cache = {modem["port"]: modem["phone"].lstrip("+") for modem in audit_data["data"] if
+                                 modem["phone"]}
 
                 self.sim_cache = new_sim_cache
                 logging.info(f"Кэш SIM-карт обновлён: {self.sim_cache}")
 
-            except Exception as e:
-                logging.error(f"Ошибка в update_sim_cache: {e}")
+            except requests.RequestException as e:
+                logging.error(f"Ошибка при запросе /audit: {e}")
 
             await asyncio.sleep(30)
 
