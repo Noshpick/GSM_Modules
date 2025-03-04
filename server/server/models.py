@@ -30,7 +30,7 @@ class Log(Base):
     message = Column(Text, nullable=False)
     timestamp = Column(DateTime, default=datetime.datetime.utcnow)
 
-DATABASE_URL = "sqlite:///server/database.db"
+DATABASE_URL = "sqlite:////app/server/database.db"
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 
