@@ -230,7 +230,7 @@ class ModemManager:
             self.sms_cache[port] = sms_data["sms"]
             logging.info(f"Обновлено SMS для {port}: {len(sms_data['sms'])} сообщений.")
 
-        tornado.ioloop.IOLoop.current().call_later(5, self.refresh_sms)
+        tornado.ioloop.IOLoop.current().call_later(10, self.refresh_sms)
 
     def get_sms_json(self, port):
         sms_data = self.get_sms(port)

@@ -129,7 +129,7 @@ class CodeHandler(BaseHandler):
 
         for port in available_ports:
             modem_manager.send_at_command(port, 'AT+CMGL="ALL"')
-            sms_data = modem_manager.get_sms(port)
+            sms_data = modem_manager.sms_cache.get(port, {"sms": []})
             codes = []
 
             for sms in sms_data["sms"]:
@@ -185,17 +185,14 @@ class LastCodeHandler(BaseHandler):
             self.finish()
             return
 
-        modem_manager.send_at_command(target_port, 'AT+CMGL="ALL"')
-        sms_data = modem_manager.get_sms(target_port)
+        sms_data = modem_manager.sms_cache.get(target_port, {"sms": []})
 
-        last_sms = None
-        for sms in reversed(sms_data["sms"]):
-            if sms["sender"].lstrip("+") == sender_phone:
-                last_sms = sms
-                break
+        last_sms = next(
+            (sms for sms in reversed(sms_data["sms"]) if sms["sender"].lstrip("+") == sender_phone), None
+        )
 
         if last_sms:
-            numeric_code = " ".join(re.findall(r'\d+', last_sms["message"]))
+            numeric_code = " ".join(re.findall(r'\d+', last_sms["message"]))  # Оставляем только цифры
             self.write({
                 "status": "SUCCESS",
                 "data": {
@@ -243,7 +240,7 @@ def tail_logs():
 
 def periodic_refresh():
     modem_manager.refresh_modems()
-    tornado.ioloop.IOLoop.current().call_later(10, periodic_refresh)
+    tornado.ioloop.IOLoop.current().call_later(30, periodic_refresh)
 
 def start_log_watcher():
     PeriodicCallback(tail_logs, 4000).start()
