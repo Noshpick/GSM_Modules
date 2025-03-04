@@ -9,13 +9,10 @@ export default function App() {
     const [showLogs, setShowLogs] = useState(false);
 
     useEffect(() => {
-        fetchAuditData();
-        fetchSmsData();
-        setupWebSocket();
-
-        const smsInterval = setInterval(fetchSmsData, 10000);
-        return () => clearInterval(smsInterval);
+        axios.get("http://45.152.170.77:7777/modems").then((res) => setAuditData(res.data.data));
+        axios.get("http://45.152.170.77:7777/sms").then((res) => setSmsData(res.data.data));
     }, []);
+
 
     const fetchAuditData = async () => {
         try {
