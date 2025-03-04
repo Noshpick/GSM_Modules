@@ -13,6 +13,7 @@ modem_manager.connect()
 
 log_clients = set()
 
+
 class BaseHandler(tornado.web.RequestHandler):
     def set_default_headers(self):
         self.set_header("Access-Control-Allow-Origin", "*")
@@ -64,7 +65,7 @@ class SMSHandler(BaseHandler):
             sms_data = get_all_sms(db)
             formatted_sms = [
                 {
-                    "port": sms.modem_id,
+                    "port": sms.port,
                     "sender": sms.sender,
                     "message": sms.message,
                     "timestamp": sms.timestamp.strftime("%Y-%m-%d %H:%M:%S")
@@ -74,36 +75,35 @@ class SMSHandler(BaseHandler):
             self.write({"status": "SUCCESS", "data": formatted_sms})
 
 
-
 class AuditHandler(BaseHandler):
     def get(self):
         with next(get_db()) as db:
             modems = get_all_modems(db)
             sms_data = get_all_sms(db)
 
-            sms_by_modem = {}
+            sms_by_port = {}
             for sms in sms_data:
-                if sms.modem_id not in sms_by_modem:
-                    sms_by_modem[sms.modem_id] = []
-                sms_by_modem[sms.modem_id].append({
+                if sms.port not in sms_by_port:
+                    sms_by_port[sms.port] = []
+                sms_by_port[sms.port].append({
                     "sender": sms.sender,
                     "message": sms.message,
                     "timestamp": sms.timestamp.strftime("%Y-%m-%d %H:%M:%S")
                 })
 
+            # Формируем JSON для /audit
             all_audit_data = [
                 {
                     "port": modem.port,
-                    "operator": modem.operator,
-                    "phone": modem.phone,
+                    "operator": modem.operator.strip(),
+                    "phone": modem.phone if modem.phone else "Номер SIM недоступен",
                     "balance": modem.balance if modem.balance is not None else "Недоступно",
-                    "sms": sms_by_modem.get(modem.id, [])
+                    "sms": sms_by_port.get(modem.port, [])
                 }
                 for modem in modems
             ]
 
             self.write({"status": "SUCCESS", "data": all_audit_data})
-
 
 
 class CodeHandler(BaseHandler):
@@ -125,10 +125,10 @@ class CodeHandler(BaseHandler):
 
                 if sender == phone_number:
                     numeric_code = " ".join(re.findall(r'\d+', sms.message))
-                    if sms.modem_id not in extracted_codes:
-                        extracted_codes[sms.modem_id] = []
+                    if sms.port not in extracted_codes:
+                        extracted_codes[sms.port] = []
 
-                    extracted_codes[sms.modem_id].append({
+                    extracted_codes[sms.port].append({
                         "sender": sms.sender,
                         "message": numeric_code,
                         "timestamp": sms.timestamp
