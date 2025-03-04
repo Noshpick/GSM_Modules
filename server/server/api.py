@@ -63,10 +63,16 @@ class SMSHandler(BaseHandler):
         with next(get_db()) as db:
             sms_data = get_all_sms(db)
             formatted_sms = [
-                {"port": sms.modem_id, "sender": sms.sender, "message": sms.message, "timestamp": sms.timestamp}
+                {
+                    "port": sms.modem_id,
+                    "sender": sms.sender,
+                    "message": sms.message,
+                    "timestamp": sms.timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                }
                 for sms in sms_data
             ]
             self.write({"status": "SUCCESS", "data": formatted_sms})
+
 
 
 class AuditHandler(BaseHandler):
