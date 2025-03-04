@@ -156,6 +156,66 @@ class CodeHandler(BaseHandler):
         self.finish()
 
 
+class LastCodeHandler(BaseHandler):
+    def get(self):
+        modem_phone = self.get_argument("modem_phone", None)
+        sender_phone = self.get_argument("phone", None)
+
+        if not modem_phone or not sender_phone:
+            self.write({
+                "status": "ERROR",
+                "message": "Отсутствует параметр 'modem_phone' или 'phone'."
+            })
+            self.set_status(400)
+            self.finish()
+            return
+
+        target_port = None
+        for port in self.get_available_ports():
+            if modem_manager.get_phone_number(port) == modem_phone:
+                target_port = port
+                break
+
+        if not target_port:
+            self.write({
+                "status": "ERROR",
+                "message": f"Модем с номером {modem_phone} не найден."
+            })
+            self.set_status(404)
+            self.finish()
+            return
+
+        modem_manager.send_at_command(target_port, 'AT+CMGL="ALL"')
+        sms_data = modem_manager.get_sms(target_port)
+
+        last_sms = None
+        for sms in reversed(sms_data["sms"]):
+            if sms["sender"].lstrip("+") == sender_phone:
+                last_sms = sms
+                break
+
+        if last_sms:
+            numeric_code = " ".join(re.findall(r'\d+', last_sms["message"]))
+            self.write({
+                "status": "SUCCESS",
+                "data": {
+                    "id": last_sms["id"],
+                    "sender": last_sms["sender"],
+                    "message": numeric_code,
+                    "timestamp": last_sms["timestamp"]
+                }
+            })
+        else:
+            self.write({
+                "status": "ERROR",
+                "message": f"Последнее SMS от номера {sender_phone} не найдено."
+            })
+            self.set_status(404)
+
+        self.finish()
+
+
+
 def tail_logs():
     log_file_path = "logs/app.log"
     if not os.path.exists(log_file_path):
@@ -197,6 +257,7 @@ def make_app():
         (r"/audit", AuditHandler),
         (r"/code", CodeHandler),
         (r"/ws/logs", LogsWebSocketHandler),
+        (r"/last_code", LastCodeHandler),
     ])
 
 
