@@ -1,5 +1,5 @@
-from server.api import make_app
 from server.models import init_db
+from server.api import make_app
 import tornado.ioloop
 import time
 

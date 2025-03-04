@@ -156,6 +156,7 @@ class ModemManager:
 
             self.send_at_command(port, "AT+CMGF=1")
             response = self.send_at_command(port, 'AT+CMGL="ALL"')
+            print(f"RAW SMS RESPONSE [{port}]:\n{response}")
             if not response or "ERROR" in response:
                 return {"sms": []}
 
