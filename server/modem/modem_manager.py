@@ -24,6 +24,7 @@ class ModemManager:
         self.set_usb_permissions()
         self.refresh_modems()
         tornado.ioloop.IOLoop.current().spawn_callback(self.update_sms_cache)
+        tornado.ioloop.IOLoop.current().spawn_callback(self.update_sim_cache)
 
     def set_usb_permissions(self):
         logging.info("Установка прав на USB-устройства")
@@ -58,26 +59,33 @@ class ModemManager:
     async def update_sim_cache(self):
         while True:
             try:
-                logging.info("Обновляем кэш номеров SIM через /audit...")
+                logging.info("Запрашиваем /audit для обновления кэша SIM...")
 
                 response = requests.get("http://45.152.170.77:7777/audit", timeout=10)
                 audit_data = response.json()
 
-                if "data" not in audit_data:
-                    logging.error("Ошибка: /audit не содержит 'data'")
+                if "data" not in audit_data or not audit_data["data"]:
+                    logging.error("Ошибка: /audit не содержит 'data' или список пуст!")
+                    print("Ошибка: /audit не содержит 'data' или список пуст!")
                     continue
 
-                new_sim_cache = {modem["port"]: modem["phone"].lstrip("+") for modem in audit_data["data"] if
-                                 modem["phone"]}
+                new_sim_cache = {}
+                for modem in audit_data["data"]:
+                    port = modem.get("port")
+                    phone = modem.get("phone", "").strip("+")
+
+                    if port and phone:
+                        new_sim_cache[port] = phone
 
                 self.sim_cache = new_sim_cache
                 logging.info(f"Кэш SIM-карт обновлён: {self.sim_cache}")
+                print(f"Обновлён кэш SIM-карт: {self.sim_cache}")
 
             except requests.RequestException as e:
                 logging.error(f"Ошибка при запросе /audit: {e}")
+                print(f"Ошибка при запросе /audit: {e}")
 
             await asyncio.sleep(30)
-
 
     def find_modem_ports(self):
         logging.info("Поиск доступных модемов...")
