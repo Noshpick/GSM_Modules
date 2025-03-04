@@ -1,5 +1,8 @@
 from server.api import make_app
 import tornado.ioloop
+from server.models import init_db
+
+init_db()
 
 if __name__ == "__main__":
     app = make_app()
