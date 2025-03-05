@@ -158,8 +158,8 @@ class CodeHandler(BaseHandler):
 
 class LastCodeHandler(BaseHandler):
     def get(self):
-        modem_phone = self.get_argument("modem_phone", None)  # Номер SIM-карты модема
-        sender_phone = self.get_argument("phone", None)  # Номер отправителя SMS
+        modem_phone = self.get_argument("modem_phone", None)
+        sender_phone = self.get_argument("phone", None)
 
         if not modem_phone or not sender_phone:
             self.write({
@@ -176,7 +176,7 @@ class LastCodeHandler(BaseHandler):
 
         if not target_port:
             try:
-                audit_response = requests.get("http://45.152.170.77:7777/audit", timeout=10)
+                audit_response = requests.get("http://45.152.170.77:7777/audit")
                 audit_data = audit_response.json()
 
                 if "data" in audit_data:
@@ -204,7 +204,7 @@ class LastCodeHandler(BaseHandler):
             return
 
         try:
-            sms_response = requests.get("http://45.152.170.77:7777/sms", timeout=10)
+            sms_response = requests.get("http://45.152.170.77:7777/sms")
             sms_data = sms_response.json()
         except requests.RequestException as e:
             self.write({
