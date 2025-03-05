@@ -164,7 +164,6 @@ class CacheStatusHandler(BaseHandler):
             "sim_cache": modem_manager.sim_cache
         })
 
-
 class LastCodeHandler(BaseHandler):
     def get(self):
         modem_phone = self.get_argument("modem_phone", None)
@@ -179,12 +178,28 @@ class LastCodeHandler(BaseHandler):
             self.finish()
             return
 
-        target_port = next((port for port, phone in modem_manager.sim_cache.items() if phone == modem_phone), None)
+        try:
+            audit_response = requests.get("http://45.152.170.77:7777/audit", timeout=10)
+            audit_data = audit_response.json()
+        except requests.RequestException as e:
+            self.write({
+                "status": "ERROR",
+                "message": f"Ошибка при запросе /audit: {str(e)}"
+            })
+            self.set_status(500)
+            self.finish()
+            return
+
+        target_port = None
+        for modem in audit_data.get("data", []):
+            if modem["phone"].lstrip("+") == modem_phone:
+                target_port = modem["port"]
+                break
 
         if not target_port:
             self.write({
                 "status": "ERROR",
-                "message": f"Модем с номером {modem_phone} не найден. Доступные модемы: {list(modem_manager.sim_cache.values())}"
+                "message": f"Модем с номером {modem_phone} не найден."
             })
             self.set_status(404)
             self.finish()
