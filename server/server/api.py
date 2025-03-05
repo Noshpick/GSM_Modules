@@ -156,6 +156,15 @@ class CodeHandler(BaseHandler):
 
         self.finish()
 
+
+class CacheStatusHandler(BaseHandler):
+    def get(self):
+        self.write({
+            "status": "SUCCESS",
+            "sim_cache": modem_manager.sim_cache
+        })
+
+
 class LastCodeHandler(BaseHandler):
     def get(self):
         modem_phone = self.get_argument("modem_phone", None)
@@ -271,6 +280,7 @@ def make_app():
         (r"/code", CodeHandler),
         (r"/ws/logs", LogsWebSocketHandler),
         (r"/last_code", LastCodeHandler),
+        (r"/cache_status", CacheStatusHandler),
     ])
 
 
