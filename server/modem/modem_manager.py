@@ -8,12 +8,47 @@ import platform
 import re
 import time
 import requests
-
+import sqlite3
 import tornado
 
 CONFIG_PATH = "config/config.json"
 with open(CONFIG_PATH) as f:
     CONFIG = json.load(f)
+
+class DatabaseManager:
+    def __init__(self, db_path="modems.db"):
+        self.db_path = db_path
+        self.init_db()
+
+    def init_db(self):
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS modems (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    sim_number TEXT UNIQUE,
+                    port TEXT
+                )
+            """)
+            conn.commit()
+
+    def update_modem(self, sim_number, port):
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO modems (sim_number, port) VALUES (?, ?)
+                ON CONFLICT(sim_number) DO UPDATE SET port=excluded.port
+            """, (sim_number, port))
+            conn.commit()
+
+    def get_port_by_sim(self, sim_number):
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT port FROM modems WHERE sim_number = ?", (sim_number,))
+            row = cursor.fetchone()
+            return row[0] if row else None
+
+
 
 class ModemManager:
     def __init__(self):
@@ -59,31 +94,28 @@ class ModemManager:
     async def update_sim_cache(self):
         while True:
             try:
-                logging.info("Запрашиваем /audit для обновления кэша SIM...")
+                logging.info("Запрашиваем /audit для обновления БД модемов...")
 
                 response = requests.get("http://45.152.170.77:7777/audit", timeout=10)
                 audit_data = response.json()
 
                 if "data" not in audit_data or not audit_data["data"]:
                     logging.error("Ошибка: /audit не содержит 'data' или список пуст!")
-                    print("Ошибка: /audit не содержит 'data' или список пуст!")
                     continue
 
-                new_sim_cache = {}
+                db = DatabaseManager()
+
                 for modem in audit_data["data"]:
                     port = modem.get("port")
                     phone = modem.get("phone", "").strip("+")
 
                     if port and phone:
-                        new_sim_cache[port] = phone
+                        db.update_modem(phone, port)
 
-                self.sim_cache = new_sim_cache
-                logging.info(f"Кэш SIM-карт обновлён: {self.sim_cache}")
-                print(f"Обновлён кэш SIM-карт: {self.sim_cache}")
+                logging.info("БД модемов успешно обновлена")
 
             except requests.RequestException as e:
                 logging.error(f"Ошибка при запросе /audit: {e}")
-                print(f"Ошибка при запросе /audit: {e}")
 
             await asyncio.sleep(30)
 

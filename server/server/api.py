@@ -5,7 +5,7 @@ import re
 import os
 import json
 from tornado.ioloop import PeriodicCallback
-from modem.modem_manager import ModemManager
+from modem.modem_manager import ModemManager, DatabaseManager
 import asyncio
 import requests
 
@@ -156,18 +156,10 @@ class CodeHandler(BaseHandler):
 
         self.finish()
 
-
-class CacheStatusHandler(BaseHandler):
-    def get(self):
-        self.write({
-            "status": "SUCCESS",
-            "sim_cache": modem_manager.sim_cache
-        })
-
 class LastCodeHandler(BaseHandler):
     def get(self):
-        modem_phone = self.get_argument("modem_phone", None)
-        sender_phone = self.get_argument("phone", None)
+        modem_phone = self.get_argument("modem_phone", None)  # Номер SIM-карты модема
+        sender_phone = self.get_argument("phone", None)  # Номер отправителя SMS
 
         if not modem_phone or not sender_phone:
             self.write({
@@ -178,23 +170,29 @@ class LastCodeHandler(BaseHandler):
             self.finish()
             return
 
-        try:
-            audit_response = requests.get("http://45.152.170.77:7777/audit", timeout=1000)
-            audit_data = audit_response.json()
-        except requests.RequestException as e:
-            self.write({
-                "status": "ERROR",
-                "message": f"Ошибка при запросе /audit: {str(e)}"
-            })
-            self.set_status(500)
-            self.finish()
-            return
+        db = DatabaseManager()
 
-        target_port = None
-        for modem in audit_data.get("data", []):
-            if modem["phone"].lstrip("+") == modem_phone:
-                target_port = modem["port"]
-                break
+        target_port = db.get_port_by_sim(modem_phone)
+
+        if not target_port:
+            try:
+                audit_response = requests.get("http://45.152.170.77:7777/audit", timeout=10)
+                audit_data = audit_response.json()
+
+                if "data" in audit_data:
+                    for modem in audit_data["data"]:
+                        db.update_modem(modem["phone"].lstrip("+"), modem["port"])
+
+                target_port = db.get_port_by_sim(modem_phone)
+
+            except requests.RequestException as e:
+                self.write({
+                    "status": "ERROR",
+                    "message": f"Ошибка при запросе /audit: {str(e)}"
+                })
+                self.set_status(500)
+                self.finish()
+                return
 
         if not target_port:
             self.write({
@@ -206,7 +204,7 @@ class LastCodeHandler(BaseHandler):
             return
 
         try:
-            sms_response = requests.get("http://45.152.170.77:7777/sms", timeout=1000)
+            sms_response = requests.get("http://45.152.170.77:7777/sms", timeout=10)
             sms_data = sms_response.json()
         except requests.RequestException as e:
             self.write({
@@ -232,7 +230,8 @@ class LastCodeHandler(BaseHandler):
         )
 
         if last_sms:
-            numeric_code = " ".join(re.findall(r'\d+', last_sms["message"]))
+            non_numeric_message = re.sub(r'\d+', '', last_sms["message"])
+
             self.write({
                 "status": "SUCCESS",
                 "data": {
@@ -240,7 +239,7 @@ class LastCodeHandler(BaseHandler):
                     "port": target_port,
                     "id": last_sms["id"],
                     "sender": last_sms["sender"],
-                    "message": numeric_code,
+                    "message": non_numeric_message,
                     "timestamp": last_sms["timestamp"]
                 }
             })
@@ -252,6 +251,7 @@ class LastCodeHandler(BaseHandler):
             self.set_status(404)
 
         self.finish()
+
 
 def tail_logs():
     log_file_path = "logs/app.log"
@@ -295,7 +295,6 @@ def make_app():
         (r"/code", CodeHandler),
         (r"/ws/logs", LogsWebSocketHandler),
         (r"/last_code", LastCodeHandler),
-        (r"/cache_status", CacheStatusHandler),
     ])
 
 
