@@ -179,7 +179,7 @@ class LastCodeHandler(BaseHandler):
             return
 
         try:
-            audit_response = requests.get("http://45.152.170.77:7777/audit", timeout=10)
+            audit_response = requests.get("http://45.152.170.77:7777/audit", timeout=1000)
             audit_data = audit_response.json()
         except requests.RequestException as e:
             self.write({
@@ -206,7 +206,7 @@ class LastCodeHandler(BaseHandler):
             return
 
         try:
-            sms_response = requests.get("http://45.152.170.77:7777/sms", timeout=10)
+            sms_response = requests.get("http://45.152.170.77:7777/sms", timeout=1000)
             sms_data = sms_response.json()
         except requests.RequestException as e:
             self.write({
