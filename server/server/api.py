@@ -5,9 +5,8 @@ import re
 import os
 import json
 from tornado.ioloop import PeriodicCallback
-from modem.modem_manager import ModemManager, DatabaseManager
+from modem.modem_manager import ModemManager
 import asyncio
-import requests
 
 modem_manager = ModemManager()
 modem_manager.connect()
@@ -130,7 +129,7 @@ class CodeHandler(BaseHandler):
 
         for port in available_ports:
             modem_manager.send_at_command(port, 'AT+CMGL="ALL"')
-            sms_data = modem_manager.sms_cache.get(port, {"sms": []})
+            sms_data = modem_manager.get_sms(port)
             codes = []
 
             for sms in sms_data["sms"]:
@@ -153,102 +152,6 @@ class CodeHandler(BaseHandler):
             self.set_status(404)
         else:
             self.write({"status": "SUCCESS", "data": extracted_codes})
-
-        self.finish()
-
-class LastCodeHandler(BaseHandler):
-    def get(self):
-        modem_phone = self.get_argument("modem_phone", None)
-        sender_phone = self.get_argument("phone", None)
-
-        if not modem_phone or not sender_phone:
-            self.write({
-                "status": "ERROR",
-                "message": "Отсутствует параметр 'modem_phone' или 'phone'."
-            })
-            self.set_status(400)
-            self.finish()
-            return
-
-        db = DatabaseManager()
-
-        target_port = db.get_port_by_sim(modem_phone)
-
-        if not target_port:
-            try:
-                audit_response = requests.get("http://45.152.170.77:7777/audit")
-                audit_data = audit_response.json()
-
-                if "data" in audit_data:
-                    for modem in audit_data["data"]:
-                        db.update_modem(modem["phone"].lstrip("+"), modem["port"])
-
-                target_port = db.get_port_by_sim(modem_phone)
-
-            except requests.RequestException as e:
-                self.write({
-                    "status": "ERROR",
-                    "message": f"Ошибка при запросе /audit: {str(e)}"
-                })
-                self.set_status(500)
-                self.finish()
-                return
-
-        if not target_port:
-            self.write({
-                "status": "ERROR",
-                "message": f"Модем с номером {modem_phone} не найден."
-            })
-            self.set_status(404)
-            self.finish()
-            return
-
-        try:
-            sms_response = requests.get("http://45.152.170.77:7777/sms")
-            sms_data = sms_response.json()
-        except requests.RequestException as e:
-            self.write({
-                "status": "ERROR",
-                "message": f"Ошибка при запросе /sms: {str(e)}"
-            })
-            self.set_status(500)
-            self.finish()
-            return
-
-        if "data" not in sms_data or target_port not in sms_data["data"]:
-            self.write({
-                "status": "ERROR",
-                "message": f"SMS для модема {modem_phone} (порт {target_port}) не найдены."
-            })
-            self.set_status(404)
-            self.finish()
-            return
-
-        last_sms = next(
-            (sms for sms in reversed(sms_data["data"][target_port]) if sms["sender"].lstrip("+") == sender_phone),
-            None
-        )
-
-        if last_sms:
-            non_numeric_message = re.sub(r'\d+', '', last_sms["message"])
-
-            self.write({
-                "status": "SUCCESS",
-                "data": {
-                    "modem_phone": modem_phone,
-                    "port": target_port,
-                    "id": last_sms["id"],
-                    "sender": last_sms["sender"],
-                    "message": non_numeric_message,
-                    "timestamp": last_sms["timestamp"]
-                }
-            })
-        else:
-            self.write({
-                "status": "ERROR",
-                "message": f"Последнее SMS от номера {sender_phone} не найдено на модеме {modem_phone}."
-            })
-            self.set_status(404)
 
         self.finish()
 
@@ -280,7 +183,7 @@ def tail_logs():
 
 def periodic_refresh():
     modem_manager.refresh_modems()
-    tornado.ioloop.IOLoop.current().call_later(30, periodic_refresh)
+    tornado.ioloop.IOLoop.current().call_later(10, periodic_refresh)
 
 def start_log_watcher():
     PeriodicCallback(tail_logs, 4000).start()
@@ -294,7 +197,6 @@ def make_app():
         (r"/audit", AuditHandler),
         (r"/code", CodeHandler),
         (r"/ws/logs", LogsWebSocketHandler),
-        (r"/last_code", LastCodeHandler),
     ])
 
 
