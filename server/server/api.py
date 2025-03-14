@@ -106,54 +106,44 @@ class AuditHandler(BaseHandler):
 
 class CodeHandler(BaseHandler):
     def get(self):
-        phone_number = self.get_argument("phone", None)
+        sim_number = self.get_argument("sim_number", None)
 
-        if not phone_number:
+        if not sim_number:
             self.write({
                 "status": "ERROR",
-                "message": "Отсутствует параметр 'phone'. Укажите номер отправителя."
+                "message": "Необходимо указать параметр 'sim_number' (номер SIM-карты), чтобы получить все SMS."
             })
             self.set_status(400)
             self.finish()
             return
 
-        extracted_codes = {}
-
         available_ports = self.get_available_ports()
+        matching_port = None
 
-        if not available_ports:
-            self.write({"status": "ERROR", "message": "Нет доступных модемов."})
-            self.set_status(500)
+        for port in available_ports:
+            if modem_manager.get_phone_number(port) == sim_number:
+                matching_port = port
+                break
+
+        if not matching_port:
+            self.write({
+                "status": "ERROR",
+                "message": f"Не найден модем с SIM-картой {sim_number}. Доступные номера: {[modem_manager.get_phone_number(p) for p in available_ports]}"
+            })
+            self.set_status(404)
             self.finish()
             return
 
-        for port in available_ports:
-            modem_manager.send_at_command(port, 'AT+CMGL="ALL"')
-            sms_data = modem_manager.get_sms(port)
-            codes = []
+        sms_data = modem_manager.get_sms(matching_port)
 
-            for sms in sms_data["sms"]:
-                sender = sms["sender"].lstrip("+")
-
-                if sender == phone_number:
-                    numeric_code = " ".join(re.findall(r'\d+', sms["message"]))
-
-                    codes.append({
-                        "id": sms["id"],
-                        "sender": sms["sender"],
-                        "message": numeric_code,
-                        "timestamp": sms["timestamp"]
-                    })
-
-            extracted_codes[port] = codes
-
-        if all(len(codes) == 0 for codes in extracted_codes.values()):
-            self.write({"status": "ERROR", "message": f"Сообщения от номера {phone_number} не найдены."})
-            self.set_status(404)
-        else:
-            self.write({"status": "SUCCESS", "data": extracted_codes})
-
+        self.write({
+            "status": "SUCCESS",
+            "sim_number": sim_number,
+            "modem_port": matching_port,
+            "messages": sms_data["sms"]
+        })
         self.finish()
+
 
 
 def tail_logs():
