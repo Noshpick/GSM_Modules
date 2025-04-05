@@ -1,25 +1,6 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
 
-// Конфигурация axios
-const axiosInstance = axios.create({
-  timeout: 30000, // 30 секунд
-  retry: 3,
-  retryDelay: 1000,
-});
-
-// Перехватчик для повторных попыток
-axiosInstance.interceptors.response.use(null, async (error) => {
-  const { config } = error;
-  if (!config || !config.retry) {
-    return Promise.reject(error);
-  }
-  config.retry -= 1;
-  const delayRetry = new Promise(resolve => setTimeout(resolve, config.retryDelay));
-  await delayRetry;
-  return axiosInstance(config);
-});
-
 export default function App() {
     const [auditData, setAuditData] = useState([]);
     const [smsData, setSmsData] = useState({});
@@ -32,18 +13,13 @@ export default function App() {
         fetchSmsData();
         setupWebSocket();
 
-        const smsInterval = setInterval(fetchSmsData, 15000); // Увеличен интервал до 15 секунд
-        const auditInterval = setInterval(fetchAuditData, 30000); // Аудит обновляем реже
-
-        return () => {
-            clearInterval(smsInterval);
-            clearInterval(auditInterval);
-        };
+        const smsInterval = setInterval(fetchSmsData, 10000);
+        return () => clearInterval(smsInterval);
     }, []);
 
     const fetchAuditData = async () => {
         try {
-            const response = await axiosInstance.get("http://45.152.170.77:7777/audit");
+            const response = await axios.get("http://45.152.170.77:7777/audit");
             setAuditData(response.data.data);
         } catch (error) {
             console.error("Ошибка при получении данных аудита:", error);
@@ -52,7 +28,7 @@ export default function App() {
 
     const fetchSmsData = async () => {
         try {
-            const response = await axiosInstance.get("http://45.152.170.77:7777/sms");
+            const response = await axios.get("http://45.152.170.77:7777/sms");
             setSmsData(response.data.data);
             setLoading(false);
         } catch (error) {

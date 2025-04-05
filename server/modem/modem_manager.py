@@ -116,7 +116,7 @@ class ModemManager:
             logging.warning(f"Ошибка при отключении {port}: {e}")
 
 
-    def send_at_command(self, port, command, delay=0.1, refresh=True):
+    def send_at_command(self, port, command, delay=0.2, refresh=True):
         if refresh:
             self.refresh_modems()
 
@@ -128,18 +128,11 @@ class ModemManager:
             time.sleep(delay)
 
             response = ""
-            max_wait = 0.5
-            start_time = time.time()
-            
-            while time.time() - start_time < max_wait:
-                if modem.in_waiting:
-                    chunk = modem.read(modem.in_waiting).decode(errors="ignore")
-                    response += chunk
-                    if "OK" in chunk or "ERROR" in chunk:
-                        break
-                time.sleep(0.05)
+            while modem.inWaiting():
+                response += modem.read(modem.inWaiting()).decode(errors="ignore")
+                time.sleep(0.1)
 
-            logging.debug(f"Ответ от модема {port}: {response.strip()}")
+                logging.debug(f"Ответ от модема {port}: {response.strip()}")
             return response.strip()
         return None
 
@@ -304,21 +297,14 @@ class ModemManager:
 
     async def update_sms_cache(self):
         while True:
-            tasks = []
-            for port in self.modems.keys():
-                tasks.append(self.async_get_sms(port))
-            
-            if tasks:
-                results = await asyncio.gather(*tasks, return_exceptions=True)
-                for port, result in zip(self.modems.keys(), results):
-                    if isinstance(result, dict):
-                        self.sms_cache[port] = result["sms"]
-                        
-            await asyncio.sleep(2)
-
-    async def async_get_sms(self, port):
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self.get_sms, port)
+            try:
+                self.refresh_modems()
+                new_sms_cache = {port: self.get_sms(port)["sms"] for port in self.modems.keys()}
+                self.sms_cache = new_sms_cache
+                logging.info(f"Кэш SMS обновлён. Найденные порты: {list(self.modems.keys())}")
+            except Exception as e:
+                logging.error(f"Ошибка в update_sms_cache: {e}")
+            await asyncio.sleep(10)
 
     def close(self):
         for port, modem in self.modems.items():
