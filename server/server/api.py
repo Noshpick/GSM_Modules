@@ -1,20 +1,17 @@
-import tornado.ioloop
 import tornado.web
 import tornado.websocket
+import ujson as json
 import re
 import os
-import json
-from tornado.ioloop import PeriodicCallback
-from modem.modem_manager import ModemManager
 import asyncio
+from modem.modem_manager import ModemManager
 
 modem_manager = ModemManager()
-modem_manager.connect()
 
 log_clients = set()
 
 class BaseHandler(tornado.web.RequestHandler):
-    
+    """Базовый обработчик API"""
     def set_default_headers(self):
         self.set_header("Access-Control-Allow-Origin", "*")
         self.set_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS, DELETE, PUT")
@@ -24,36 +21,42 @@ class BaseHandler(tornado.web.RequestHandler):
         self.set_status(204)
         self.finish()
 
-    def get_available_ports(self):
-        modem_manager.refresh_modems()
-        return list(modem_manager.modems.keys())
+class AuditHandler(BaseHandler):
+    def get(self):
+        self.write(json.dumps({"status": "SUCCESS", "data": modem_manager.get_all_modems_info()}))
 
-    def get_request_port(self):
-        port = self.get_argument("port", None)
-        available_ports = self.get_available_ports()
+class SMSHandler(BaseHandler):
+    def get(self):
+        self.write(json.dumps({"status": "SUCCESS", "data": modem_manager.sms_cache}))
 
-        if not port:
-            self.write({
-                "status": "ERROR",
-                "message": f"Отсутствует параметр 'port'. Доступные порты: {available_ports}"
-            })
+class CodeHandler(BaseHandler):
+    def get(self):
+        phone_number = self.get_argument("phone", None)
+        if not phone_number:
+            self.write(json.dumps({"status": "ERROR", "message": "Укажите номер телефона"}))
             self.set_status(400)
-            self.finish()
-            return None
+            return
 
-        if port not in available_ports:
-            self.write({
-                "status": "ERROR",
-                "message": f"Неверный параметр 'port'. Укажите один из доступных портов: {available_ports}"
-            })
-            self.set_status(400)
-            self.finish()
-            return None
+        extracted_codes = {}
+        for port, messages in modem_manager.sms_cache.items():
+            codes = [
+                {
+                    "id": sms["id"],
+                    "sender": sms["sender"],
+                    "message": " ".join(re.findall(r'\d+', sms["message"])),
+                    "timestamp": sms["timestamp"]
+                }
+                for sms in messages if sms["sender"].lstrip("+") == phone_number
+            ]
+            extracted_codes[port] = codes
 
-        return port
+        if all(len(codes) == 0 for codes in extracted_codes.values()):
+            self.set_status(404)
+            self.write(json.dumps({"status": "ERROR", "message": f"Сообщения от номера {phone_number} не найдены."}))
+        else:
+            self.write(json.dumps({"status": "SUCCESS", "data": extracted_codes}))
 
 class LogsWebSocketHandler(tornado.websocket.WebSocketHandler):
-
     def check_origin(self, origin):
         return True
 
@@ -61,7 +64,6 @@ class LogsWebSocketHandler(tornado.websocket.WebSocketHandler):
         log_clients.add(self)
         self.write_message(json.dumps({"status": "CONNECTED", "message": "WebSocket открыт"}))
         asyncio.get_event_loop().call_later(1, self.send_latest_logs)
-        self.send_latest_logs()
 
     def on_close(self):
         log_clients.discard(self)
@@ -81,106 +83,6 @@ class LogsWebSocketHandler(tornado.websocket.WebSocketHandler):
             except:
                 log_clients.discard(client)
 
-class SMSHandler(BaseHandler):
-    def get(self):
-        self.write({"status": "SUCCESS", "data": modem_manager.sms_cache})
-
-
-class AuditHandler(BaseHandler):
-    def get(self):
-        all_audit_data = []
-
-        for port in self.get_available_ports():
-            balance = modem_manager.get_balance(port)
-
-            modem_data = {
-                "port": port,
-                "operator": modem_manager.get_operator(port),
-                "phone": modem_manager.get_phone_number(port),
-                "balance": balance if balance is not None else "Недоступно",
-                "messages": modem_manager.get_sms(port)["sms"]
-            }
-            all_audit_data.append(modem_data)
-
-        self.write({"status": "SUCCESS", "data": all_audit_data})
-
-class CodeHandler(BaseHandler):
-    def get(self):
-        sim_number = self.get_argument("sim_number", None)
-
-        if not sim_number:
-            self.write({
-                "status": "ERROR",
-                "message": "Необходимо указать параметр 'sim_number' (номер SIM-карты), чтобы получить все SMS."
-            })
-            self.set_status(400)
-            self.finish()
-            return
-
-        available_ports = self.get_available_ports()
-        matching_port = None
-
-        for port in available_ports:
-            if modem_manager.get_phone_number(port) == sim_number:
-                matching_port = port
-                break
-
-        if not matching_port:
-            self.write({
-                "status": "ERROR",
-                "message": f"Не найден модем с SIM-картой {sim_number}. Доступные номера: {[modem_manager.get_phone_number(p) for p in available_ports]}"
-            })
-            self.set_status(404)
-            self.finish()
-            return
-
-        sms_data = modem_manager.get_sms(matching_port)
-
-        self.write({
-            "status": "SUCCESS",
-            "sim_number": sim_number,
-            "modem_port": matching_port,
-            "messages": sms_data["sms"]
-        })
-        self.finish()
-
-
-
-def tail_logs():
-    log_file_path = "logs/app.log"
-    if not os.path.exists(log_file_path):
-        return
-    
-    last_pos = 0
-    
-    def check_new_logs():
-        nonlocal last_pos
-        if not os.path.exists(log_file_path):
-            return
-        
-        with open(log_file_path, "r") as f:
-            f.seek(last_pos)
-            new_logs = f.readlines()
-            last_pos = f.tell()
-        
-        for line in new_logs:
-            LogsWebSocketHandler.broadcast_log(line.strip())
-        
-        tornado.ioloop.IOLoop.current().call_later(1, check_new_logs)
-    
-    check_new_logs()
-
-
-def periodic_refresh():
-    modem_manager.refresh_modems()
-    tornado.ioloop.IOLoop.current().call_later(10, periodic_refresh)
-
-def start_log_watcher():
-    PeriodicCallback(tail_logs, 4000).start()
-
-periodic_refresh()
-start_log_watcher()
-
 def make_app():
     return tornado.web.Application([
         (r"/sms", SMSHandler),
@@ -189,11 +91,8 @@ def make_app():
         (r"/ws/logs", LogsWebSocketHandler),
     ])
 
-
-
 if __name__ == "__main__":
     app = make_app()
     app.listen(7777, address="0.0.0.0")
     print("Сервер запущен: http://0.0.0.0:7777")
-    modem_manager.refresh_sms()
     tornado.ioloop.IOLoop.current().start()
