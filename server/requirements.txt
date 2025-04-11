@@ -1,3 +1,2 @@
 pyserial~=3.5
 tornado~=6.4.2
-ujson
