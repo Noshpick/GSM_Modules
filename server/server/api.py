@@ -1,6 +1,6 @@
 import tornado.web
 import tornado.websocket
-import json
+import ujson as json
 import re
 import os
 import asyncio
