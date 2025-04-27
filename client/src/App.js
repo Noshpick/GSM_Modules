@@ -11,10 +11,14 @@ export default function App() {
     useEffect(() => {
         fetchAuditData();
         fetchSmsData();
-        setupWebSocket();
+        const ws = setupWebSocket();
 
         const smsInterval = setInterval(fetchSmsData, 10000);
-        return () => clearInterval(smsInterval);
+
+        return () => {
+            clearInterval(smsInterval);
+            ws?.close();
+        };
     }, []);
 
     const fetchAuditData = async () => {
@@ -49,14 +53,12 @@ export default function App() {
         ws.onopen = () => console.log("WebSocket подключён");
         ws.onerror = (error) => console.error("Ошибка WebSocket:", error);
         ws.onclose = () => console.log("WebSocket отключён");
+
+        return ws;
     };
 
     const toggleLogs = () => {
-        const logContainer = document.querySelector(".log-container");
-        if (logContainer) {
-            logContainer.classList.toggle("open");
-            setShowLogs(!showLogs);
-        }
+        setShowLogs(!showLogs);
     };
 
     return (
@@ -86,7 +88,7 @@ export default function App() {
                 Object.entries(smsData).map(([port, messages]) => (
                     <div key={port} className="border p-4 rounded shadow mt-4">
                         <h3 className="text-lg font-semibold">Порт: {port}</h3>
-                        {messages.length > 0 ? (
+                        {Array.isArray(messages) && messages.length > 0 ? (
                             messages.map((sms, index) => (
                                 <div key={index} className="border-t pt-2 mt-2">
                                     <p><strong>Отправитель:</strong> {sms.sender}</p>
@@ -101,26 +103,28 @@ export default function App() {
                 ))
             )}
 
-            <button 
+            <button
                 className="fixed top-4 right-4 bg-blue-500 text-white px-4 py-2 rounded shadow-lg transition duration-300"
                 onClick={toggleLogs}
             >
                 {showLogs ? "Скрыть логи" : "Показать логи"}
             </button>
 
-            <div 
-                className="fixed top-0 right-0 w-80 h-full bg-gray-900 text-white p-4 log-container"
-                style={{ overflowY: "auto" }}
-            >
-                <h2 className="text-lg font-semibold mb-4">Логи</h2>
-                <div className="max-h-[85vh] overflow-y-auto border p-2 rounded bg-gray-800">
-                    {logs.length > 0 ? (
-                        logs.map((log, index) => <p key={index} className="text-sm">{log}</p>)
-                    ) : (
-                        <p>Логи отсутствуют.</p>
-                    )}
+            {showLogs && (
+                <div
+                    className="fixed top-0 right-0 w-80 h-full bg-gray-900 text-white p-4"
+                    style={{ overflowY: "auto" }}
+                >
+                    <h2 className="text-lg font-semibold mb-4">Логи</h2>
+                    <div className="max-h-[85vh] overflow-y-auto border p-2 rounded bg-gray-800">
+                        {logs.length > 0 ? (
+                            logs.map((log, index) => <p key={index} className="text-sm">{log}</p>)
+                        ) : (
+                            <p>Логи отсутствуют.</p>
+                        )}
+                    </div>
                 </div>
-            </div>
+            )}
         </div>
     );
 }
