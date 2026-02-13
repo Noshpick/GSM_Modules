@@ -250,14 +250,14 @@ class ModemManager:
                 return {"sms": [], "error": f"Модем {port} не подключён"}
 
             self.send_at_command(port, "AT+CMGF=1")
-
             response = self.send_at_command(port, 'AT+CMGL="ALL"')
             if not response or "ERROR" in response:
                 return {"sms": []}
 
             messages = response.split("+CMGL: ")[1:]
 
-            sms_list = []
+            sms_dict = {}
+
             for sms in messages:
                 parts = sms.strip().split("\r\n")
                 if len(parts) < 2:
@@ -269,19 +269,25 @@ class ModemManager:
 
                 date = header[4].strip().replace('"', '')
                 time_str = header[5].strip().replace('"', '')
+                sender = header[2].replace('"', '').strip()
+                message = self.pdu_decode("\n".join(parts[1:]).strip())
+                timestamp = f"{date} {time_str}"
 
-                sms_data = {
-                    "id": header[0].strip(),
-                    "sender": header[2].replace('"', "").strip(),
-                    "message": self.pdu_decode("\n".join(parts[1:]).strip()),
-                    "timestamp": f"{date} {time_str}"
-                }
-
-                if not include_111 and sms_data["sender"] == "111":
+                if not include_111 and sender == "111":
                     continue
 
-                sms_list.append(sms_data)
+                key = (sender, timestamp)
+                if key in sms_dict:
+                    sms_dict[key]["message"] += " " + message
+                else:
+                    sms_dict[key] = {
+                        "id": header[0].strip(),
+                        "sender": sender,
+                        "message": message,
+                        "timestamp": timestamp
+                    }
 
+            sms_list = list(sms_dict.values())
             logging.info(f"Получено {len(sms_list)} SMS с {port} за {round(time.time() - start_time, 3)} сек")
             return {"sms": sms_list}
 

@@ -1,0 +1,19 @@
+.log-container {
+    position: fixed;
+    top: 0;
+    right: 0;
+    width: 350px;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.9);
+    color: white;
+    padding: 16px;
+    overflow-y: auto;
+    box-shadow: -2px 0 10px rgba(0, 0, 0, 0.3);
+    transform: translateX(100%);
+    transition: transform 0.3s ease-in-out;
+    z-index: 1000;
+}
+
+.log-container.open {
+    transform: translateX(0);
+}

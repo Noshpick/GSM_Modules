@@ -1,12 +1,17 @@
 import tornado.ioloop
 import tornado.web
+import tornado.websocket
 import re
 import os
+import json
+from tornado.ioloop import PeriodicCallback
 from modem.modem_manager import ModemManager
+import asyncio
 
 modem_manager = ModemManager()
 modem_manager.connect()
 
+log_clients = set()
 
 class BaseHandler(tornado.web.RequestHandler):
     
@@ -47,25 +52,34 @@ class BaseHandler(tornado.web.RequestHandler):
 
         return port
 
-class LogsHandler(BaseHandler):
-    def get(self):
+class LogsWebSocketHandler(tornado.websocket.WebSocketHandler):
+
+    def check_origin(self, origin):
+        return True
+
+    def open(self):
+        log_clients.add(self)
+        self.write_message(json.dumps({"status": "CONNECTED", "message": "WebSocket открыт"}))
+        asyncio.get_event_loop().call_later(1, self.send_latest_logs)
+        self.send_latest_logs()
+
+    def on_close(self):
+        log_clients.discard(self)
+
+    def send_latest_logs(self):
         log_file_path = "logs/app.log"
-
-        if not os.path.exists(log_file_path):
-            self.write({"status": "ERROR", "message": "Файл логов отсутствует."})
-            self.set_status(404)
-            self.finish()
-            return
-
-        try:
+        if os.path.exists(log_file_path):
             with open(log_file_path, "r") as log_file:
                 logs = log_file.readlines()[-50:]
-                self.write({"status": "SUCCESS", "logs": logs})
-        except Exception as e:
-            self.write({"status": "ERROR", "message": f"Ошибка чтения логов: {str(e)}"})
-            self.set_status(500)
+                self.write_message(json.dumps({"status": "SUCCESS", "logs": logs}))
 
-        self.finish()
+    @staticmethod
+    def broadcast_log(log_message):
+        for client in list(log_clients):
+            try:
+                client.write_message(json.dumps({"status": "LOG", "message": log_message}))
+            except:
+                log_clients.discard(client)
 
 class SMSHandler(BaseHandler):
     def get(self):
@@ -92,68 +106,87 @@ class AuditHandler(BaseHandler):
 
 class CodeHandler(BaseHandler):
     def get(self):
-        phone_number = self.get_argument("phone", None)
+        sim_number = self.get_argument("sim_number", None)
 
-        if not phone_number:
+        if not sim_number:
             self.write({
                 "status": "ERROR",
-                "message": "Отсутствует параметр 'phone'. Укажите номер отправителя."
+                "message": "Необходимо указать параметр 'sim_number' (номер SIM-карты), чтобы получить все SMS."
             })
             self.set_status(400)
             self.finish()
             return
 
-        extracted_codes = {}
-
         available_ports = self.get_available_ports()
+        matching_port = None
 
-        if not available_ports:
-            self.write({"status": "ERROR", "message": "Нет доступных модемов."})
-            self.set_status(500)
+        for port in available_ports:
+            if modem_manager.get_phone_number(port) == sim_number:
+                matching_port = port
+                break
+
+        if not matching_port:
+            self.write({
+                "status": "ERROR",
+                "message": f"Не найден модем с SIM-картой {sim_number}. Доступные номера: {[modem_manager.get_phone_number(p) for p in available_ports]}"
+            })
+            self.set_status(404)
             self.finish()
             return
 
-        for port in available_ports:
-            modem_manager.send_at_command(port, 'AT+CMGL="ALL"')
-            sms_data = modem_manager.get_sms(port)
-            codes = []
+        sms_data = modem_manager.get_sms(matching_port)
 
-            for sms in sms_data["sms"]:
-                sender = sms["sender"].lstrip("+")
-
-                if sender == phone_number:
-                    numeric_code = " ".join(re.findall(r'\d+', sms["message"]))
-
-                    codes.append({
-                        "id": sms["id"],
-                        "sender": sms["sender"],
-                        "message": numeric_code,
-                        "timestamp": sms["timestamp"]
-                    })
-
-            extracted_codes[port] = codes
-
-        if all(len(codes) == 0 for codes in extracted_codes.values()):
-            self.write({"status": "ERROR", "message": f"Сообщения от номера {phone_number} не найдены."})
-            self.set_status(404)
-        else:
-            self.write({"status": "SUCCESS", "data": extracted_codes})
-
+        self.write({
+            "status": "SUCCESS",
+            "sim_number": sim_number,
+            "modem_port": matching_port,
+            "messages": sms_data["sms"]
+        })
         self.finish()
+
+
+
+def tail_logs():
+    log_file_path = "logs/app.log"
+    if not os.path.exists(log_file_path):
+        return
+    
+    last_pos = 0
+    
+    def check_new_logs():
+        nonlocal last_pos
+        if not os.path.exists(log_file_path):
+            return
+        
+        with open(log_file_path, "r") as f:
+            f.seek(last_pos)
+            new_logs = f.readlines()
+            last_pos = f.tell()
+        
+        for line in new_logs:
+            LogsWebSocketHandler.broadcast_log(line.strip())
+        
+        tornado.ioloop.IOLoop.current().call_later(1, check_new_logs)
+    
+    check_new_logs()
 
 
 def periodic_refresh():
     modem_manager.refresh_modems()
     tornado.ioloop.IOLoop.current().call_later(10, periodic_refresh)
 
+def start_log_watcher():
+    PeriodicCallback(tail_logs, 4000).start()
+
 periodic_refresh()
+start_log_watcher()
 
 def make_app():
     return tornado.web.Application([
         (r"/sms", SMSHandler),
         (r"/audit", AuditHandler),
         (r"/code", CodeHandler),
-        (r"/logs", LogsHandler),
+        (r"/ws/logs", LogsWebSocketHandler),
     ])
 
 
